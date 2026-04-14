@@ -1,0 +1,49 @@
+{
+  "_comment": "Copy to ariadne.config.json and edit. Paths are resolved relative to this file. Each repo declares zero or more scanners; a scanner is either a string (the type) or an object with `type` plus extra options.",
+  "repos": [
+    {
+      "name": "gateway",
+      "path": "../gateway",
+      "scanners": ["graphql"]
+    },
+    {
+      "name": "orders-svc",
+      "path": "../orders-svc",
+      "scanners": [
+        "http",
+        "kafka",
+        {
+          "type": "backend_clients",
+          "client_target_map": {
+            "billing": "billing-svc",
+            "user": "user-svc"
+          }
+        }
+      ]
+    },
+    {
+      "name": "billing-svc",
+      "path": "../billing-svc",
+      "scanners": ["http", "kafka"]
+    },
+    {
+      "name": "analytics",
+      "path": "../analytics",
+      "scanners": ["cube"]
+    },
+    {
+      "name": "web",
+      "path": "../web",
+      "scanners": [
+        "frontend_graphql",
+        {
+          "type": "frontend_rest",
+          "base_class_service": {
+            "OrdersApiService": "orders-svc",
+            "BillingApiService": "billing-svc"
+          }
+        }
+      ]
+    }
+  ]
+}

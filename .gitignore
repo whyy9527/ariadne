@@ -1,0 +1,13 @@
+*.db
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Local Ariadne config — never commit a user's config (paths leak repo layout)
+ariadne.config.json

@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""
+Ariadne MCP Server
+
+Exposes three tools to AI assistants (Claude Code, Cursor, etc.):
+  - query_chains:  business term → cross-service chain clusters
+  - expand_node:   node name → direct neighbors with scores
+  - log_feedback:  record whether results were useful (writes to feedback.db)
+
+Usage (stdio transport):
+  python3 mcp_server.py [--db PATH] [--fb PATH]
+
+Claude Code config (~/.claude/claude_desktop_config.json):
+  {
+    "mcpServers": {
+      "ariadne": {
+        "command": "python3",
+        "args": ["/abs/path/to/mcp_server.py"],
+        "env": {}
+      }
+    }
+  }
+"""
+import asyncio
+import json
+import os
+import sys
+import argparse
+
+# Resolve DB path before changing directory
+_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DB = os.path.join(_DIR, "ariadne.db")
+DEFAULT_FB = os.path.join(_DIR, "feedback.db")
+DEFAULT_EMB = os.path.join(_DIR, "embeddings.db")
+
+sys.path.insert(0, _DIR)
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
+
+# ── DB bootstrap ───────────────────────────────────────────────────────────────
+
+_STALE_DAYS = 7
+
+
+def _ensure_db(db_path: str):
+    """Warn if the local DB is missing or stale. No remote fetch."""
+    import time
+
+    path = os.path.abspath(db_path)
+
+    if not os.path.exists(path):
+        print(
+            f"[ariadne] DB not found at {path}. "
+            "Run 'python3 main.py scan --config ariadne.config.json' to build it.",
+            file=sys.stderr,
+        )
+        return
+
+    age_days = (time.time() - os.path.getmtime(path)) / 86400
+    if age_days > _STALE_DAYS:
+        print(
+            f"[ariadne] WARNING: DB is {age_days:.0f} days old (>{_STALE_DAYS}). "
+            "Consider re-running 'python3 main.py scan'.",
+            file=sys.stderr,
+        )
+
+app = Server("ariadne")
+
+# DB handles — initialised once at startup
+_db = None
+_fdb = None
+_edb = None
+
+
+def _get_db(db_path: str):
+    global _db
+    if _db is None:
+        from store.db import DB
+        _db = DB(db_path)
+        idf = _db.get_token_idf()
+        if idf:
+            from scoring.engine import set_idf
+            set_idf(idf)
+    return _db
+
+
+def _get_fdb(fb_path: str):
+    global _fdb
+    if _fdb is None:
+        from store.feedback_db import FeedbackDB
+        _fdb = FeedbackDB(fb_path)
+    return _fdb
+
+
+def _get_edb(emb_path: str, db):
+    """Lazy-load EmbeddingDB. Auto-builds if missing or stale (node count changed)."""
+    global _edb
+    if _edb is None:
+        from store.embedding_db import EmbeddingDB
+        _edb = EmbeddingDB(emb_path)
+
+    node_count = db.node_count()
+    if _edb.is_stale(node_count):
+        print(f"[ariadne] Embeddings stale (have {_edb.count()}, need {node_count}). "
+              "Building... (first time may take ~30s)", file=sys.stderr)
+        from scoring.embedder import build_embeddings
+        all_nodes = db.get_all_nodes()
+        n = build_embeddings(all_nodes, _edb)
+        print(f"[ariadne] Built {n} embeddings.", file=sys.stderr)
+
+    return _edb
+
+
+# ── Tool declarations ──────────────────────────────────────────────────────────
+
+@app.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="query_chains",
+            description=(
+                "Query cross-service chains by business term or endpoint name. "
+                "Returns candidate clusters of related GraphQL operations, HTTP endpoints, "
+                "Kafka topics, and frontend queries across all services indexed by the "
+                "local Ariadne DB. Use this when you need to understand which APIs, "
+                "topics, or frontend operations are involved in a business feature."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hint": {
+                        "type": "string",
+                        "description": "Business term or endpoint name (e.g. 'createOrder', 'userProfile', 'subscription')"
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of clusters to return (default 3)",
+                        "default": 3
+                    }
+                },
+                "required": ["hint"]
+            }
+        ),
+        Tool(
+            name="expand_node",
+            description=(
+                "Expand from a specific node (endpoint, topic, or operation) to see "
+                "its directly related nodes with similarity scores. Use this to trace "
+                "one hop of the cross-service chain from a known starting point."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Endpoint method name, Kafka topic name, or GraphQL operation name (partial match supported)"
+                    }
+                },
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="log_feedback",
+            description=(
+                "Record whether Ariadne results were useful. Call this after using "
+                "query_chains or expand_node to log feedback for future improvement. "
+                "Feedback is stored locally in feedback.db and survives DB rebuilds."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hint": {
+                        "type": "string",
+                        "description": "The hint used in query_chains or the node name used in expand_node"
+                    },
+                    "cluster_rank": {
+                        "type": "integer",
+                        "description": "Which cluster was referenced (1-based). Use 0 for expand_node results.",
+                        "default": 1
+                    },
+                    "node_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Node IDs from the result that were actually useful"
+                    },
+                    "accepted": {
+                        "type": "boolean",
+                        "description": "true if results helped locate files or understand the chain; false if irrelevant or misleading"
+                    }
+                },
+                "required": ["hint", "accepted"]
+            }
+        ),
+    ]
+
+
+# ── Tool implementations ───────────────────────────────────────────────────────
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name == "query_chains":
+        db = _get_db(_DB_PATH)
+        edb = _get_edb(_EMB_PATH, db)
+        return await _query_chains(db, edb, arguments)
+    elif name == "expand_node":
+        db = _get_db(_DB_PATH)
+        return await _expand_node(db, arguments)
+    elif name == "log_feedback":
+        fdb = _get_fdb(_FB_PATH)
+        return await _log_feedback(fdb, arguments)
+    else:
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
+    from query.query import query
+
+    hint = arguments["hint"]
+    top_n = int(arguments.get("top_n", 3))
+
+    results = query(db, hint, top_n=top_n, edb=edb)
+
+    if not results:
+        return [TextContent(type="text", text=f"No chains found for: {hint}")]
+
+    return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
+
+
+async def _expand_node(db, arguments: dict) -> list[TextContent]:
+    from query.query import expand
+
+    name = arguments["name"]
+    results = expand(db, name)
+
+    if not results:
+        return [TextContent(type="text", text=f"No node found matching: {name}")]
+
+    return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
+
+
+async def _log_feedback(fdb, arguments: dict) -> list[TextContent]:
+    hint = arguments["hint"]
+    cluster_rank = int(arguments.get("cluster_rank", 1))
+    node_ids = arguments.get("node_ids", [])
+    accepted = bool(arguments["accepted"])
+
+    fdb.log(hint=hint, cluster_rank=cluster_rank, node_ids=node_ids, accepted=accepted)
+    total = fdb.count()
+
+    return [TextContent(type="text", text=json.dumps({
+        "logged": True,
+        "hint": hint,
+        "accepted": accepted,
+        "total_feedback": total,
+    }))]
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+_DB_PATH = DEFAULT_DB
+_FB_PATH = DEFAULT_FB
+_EMB_PATH = DEFAULT_EMB
+
+
+async def main():
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(read_stream, write_stream, app.create_initialization_options())
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Ariadne MCP Server")
+    parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
+    parser.add_argument("--fb", default=DEFAULT_FB, help="Feedback DB path")
+    parser.add_argument("--emb", default=DEFAULT_EMB, help="Embeddings DB path")
+    args = parser.parse_args()
+    _DB_PATH = args.db
+    _FB_PATH = args.fb
+    _EMB_PATH = args.emb
+
+    _ensure_db(_DB_PATH)
+    asyncio.run(main())
