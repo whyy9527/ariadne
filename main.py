@@ -251,7 +251,27 @@ def cmd_install(args):
             f.write(snippet)
         print(f"==> CLAUDE.md: CREATED {claude_md}")
 
-    print("\nDone. Restart Claude Code to activate the Ariadne MCP server.")
+    from store.db import DB
+    try:
+        n_nodes = DB(db_path).node_count()
+        n_str = f"{n_nodes} nodes"
+    except Exception:
+        n_str = "unknown size"
+
+    print(f"""
+Done. Restart Claude Code to activate the Ariadne MCP server.
+
+  DB:        {db_path}  ({n_str})
+  Built from repos listed in: {config_path}
+  Scan mode: in-place (reads each repo's working tree; nothing is cloned)
+
+To rebuild the DB:
+  - After pulling new code in your work repos, re-run:
+      python3 {sys.argv[0]} install {config_path} {workspace}
+  - To add/remove repos or change paths, edit ariadne.config.json
+    (paths are relative to the config file's directory)
+  - To skip the scan and reuse the existing DB, pass --no-scan
+""")
 
 
 def cmd_stats(args):
