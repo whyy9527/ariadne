@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ariadne"
 version = "0.1.0"
-description = "Local cross-service semantic chain hinter for microservice development"
+description = "Cross-service API dependency graph and semantic code navigation for microservice architectures. CLI + MCP server for Claude Code, Cursor, and Windsurf."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "whyy9527" }]
