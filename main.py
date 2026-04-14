@@ -7,7 +7,7 @@ Usage:
   python main.py query    <hint>  [--db PATH] [--top N]
   python main.py expand   <name>  [--db PATH]
   python main.py stats    [--db PATH]
-  python main.py install  <target-dir> --snippet PATH [--marker STR]
+  python main.py install  <config> <workspace> [--snippet PATH] [--no-scan]
 
 Scan is config-driven. Pass --config PATH (default: ariadne.config.json in the
 current working directory). See ariadne.config.example.json for the format.
@@ -174,37 +174,84 @@ def cmd_expand(args):
     print_expand(results)
 
 
+PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
+MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
+
+
 def cmd_install(args):
-    """Append a snippet to <target>/CLAUDE.md, idempotent via marker check."""
-    snippet_path = os.path.abspath(args.snippet)
-    target_dir = os.path.abspath(args.target)
+    """All-in-one setup: scan repos, write <workspace>/.mcp.json, inject CLAUDE.md."""
+    config_path = os.path.abspath(args.config)
+    workspace = os.path.abspath(args.workspace)
+    snippet_path = os.path.abspath(args.snippet) if args.snippet else DEFAULT_SNIPPET
+
+    if not os.path.isfile(config_path):
+        print(f"ERROR: config not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isdir(workspace):
+        print(f"ERROR: workspace dir not found: {workspace}", file=sys.stderr)
+        sys.exit(1)
     if not os.path.isfile(snippet_path):
         print(f"ERROR: snippet not found: {snippet_path}", file=sys.stderr)
         sys.exit(1)
-    if not os.path.isdir(target_dir):
-        print(f"ERROR: target dir not found: {target_dir}", file=sys.stderr)
-        sys.exit(1)
 
+    data_dir = os.path.join(workspace, ".ariadne")
+    os.makedirs(data_dir, exist_ok=True)
+    db_path  = os.path.join(data_dir, "ariadne.db")
+    emb_path = os.path.join(data_dir, "embeddings.db")
+    fb_path  = os.path.join(data_dir, "feedback.db")
+
+    # 1. Scan (unless --no-scan)
+    if not args.no_scan:
+        print(f"==> Scanning via {config_path}")
+        scan_args = argparse.Namespace(config=config_path, db=db_path)
+        cmd_scan(scan_args)
+    else:
+        print(f"==> --no-scan; expecting DB at {db_path}")
+        if not os.path.isfile(db_path):
+            print(f"ERROR: --no-scan but DB missing at {db_path}", file=sys.stderr)
+            sys.exit(1)
+
+    # 2. Write .mcp.json
+    mcp_json = os.path.join(workspace, ".mcp.json")
+    cfg = {}
+    if os.path.exists(mcp_json):
+        with open(mcp_json) as f:
+            try:
+                cfg = json.load(f)
+            except json.JSONDecodeError:
+                cfg = {}
+    servers = cfg.setdefault("mcpServers", {})
+    servers["ariadne"] = {
+        "command": "python3",
+        "args": [MCP_SERVER_PATH, "--db", db_path, "--emb", emb_path, "--fb", fb_path],
+    }
+    with open(mcp_json, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    print(f"==> Wrote {mcp_json}")
+
+    # 3. Inject CLAUDE.md (idempotent via marker)
     with open(snippet_path) as f:
         snippet = f.read()
-
     marker = args.marker
-    claude_md = os.path.join(target_dir, "CLAUDE.md")
-
+    claude_md = os.path.join(workspace, "CLAUDE.md")
     if os.path.isfile(claude_md):
         with open(claude_md) as f:
             existing = f.read()
         if marker in existing:
-            print(f"SKIP: marker '{marker}' already present in {claude_md}")
-            return
-        with open(claude_md, "a") as f:
-            f.write("\n---\n")
-            f.write(snippet)
-        print(f"APPENDED to {claude_md}")
+            print(f"==> CLAUDE.md: SKIP (marker '{marker}' present)")
+        else:
+            with open(claude_md, "a") as f:
+                f.write("\n---\n")
+                f.write(snippet)
+            print(f"==> CLAUDE.md: APPENDED to {claude_md}")
     else:
         with open(claude_md, "w") as f:
             f.write(snippet)
-        print(f"CREATED {claude_md}")
+        print(f"==> CLAUDE.md: CREATED {claude_md}")
+
+    print("\nDone. Restart Claude Code to activate the Ariadne MCP server.")
 
 
 def cmd_stats(args):
@@ -251,14 +298,16 @@ def main():
 
     install_parser = sub.add_parser(
         "install",
-        help="Inject a snippet into <target>/CLAUDE.md (idempotent via marker)",
+        help="One-shot setup: scan, write <workspace>/.mcp.json, inject CLAUDE.md",
     )
-    install_parser.add_argument("target", help="Target directory containing (or to contain) CLAUDE.md")
-    install_parser.add_argument("--snippet", required=True, help="Path to snippet file to inject")
+    install_parser.add_argument("config", help="Path to ariadne.config.json (work-side scanner config)")
+    install_parser.add_argument("workspace", help="Workspace dir (e.g. ~/Desktop/work) — DB lives in <workspace>/.ariadne/")
+    install_parser.add_argument("--snippet", default=None, help="Override bundled CLAUDE.md snippet")
+    install_parser.add_argument("--no-scan", action="store_true", help="Skip scan; reuse existing DB")
     install_parser.add_argument(
         "--marker",
         default="## Ariadne",
-        help="Idempotency marker; if present in CLAUDE.md, skip (default: '## Ariadne')",
+        help="Idempotency marker; if present in CLAUDE.md, skip injection (default: '## Ariadne')",
     )
 
     args = parser.parse_args()
