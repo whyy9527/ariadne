@@ -7,6 +7,7 @@ Usage:
   python main.py query    <hint>  [--db PATH] [--top N]
   python main.py expand   <name>  [--db PATH]
   python main.py stats    [--db PATH]
+  python main.py install  <target-dir> --snippet PATH [--marker STR]
 
 Scan is config-driven. Pass --config PATH (default: ariadne.config.json in the
 current working directory). See ariadne.config.example.json for the format.
@@ -173,6 +174,39 @@ def cmd_expand(args):
     print_expand(results)
 
 
+def cmd_install(args):
+    """Append a snippet to <target>/CLAUDE.md, idempotent via marker check."""
+    snippet_path = os.path.abspath(args.snippet)
+    target_dir = os.path.abspath(args.target)
+    if not os.path.isfile(snippet_path):
+        print(f"ERROR: snippet not found: {snippet_path}", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isdir(target_dir):
+        print(f"ERROR: target dir not found: {target_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(snippet_path) as f:
+        snippet = f.read()
+
+    marker = args.marker
+    claude_md = os.path.join(target_dir, "CLAUDE.md")
+
+    if os.path.isfile(claude_md):
+        with open(claude_md) as f:
+            existing = f.read()
+        if marker in existing:
+            print(f"SKIP: marker '{marker}' already present in {claude_md}")
+            return
+        with open(claude_md, "a") as f:
+            f.write("\n---\n")
+            f.write(snippet)
+        print(f"APPENDED to {claude_md}")
+    else:
+        with open(claude_md, "w") as f:
+            f.write(snippet)
+        print(f"CREATED {claude_md}")
+
+
 def cmd_stats(args):
     from store.db import DB
     from collections import Counter
@@ -215,6 +249,18 @@ def main():
 
     sub.add_parser("stats", help="Show DB statistics")
 
+    install_parser = sub.add_parser(
+        "install",
+        help="Inject a snippet into <target>/CLAUDE.md (idempotent via marker)",
+    )
+    install_parser.add_argument("target", help="Target directory containing (or to contain) CLAUDE.md")
+    install_parser.add_argument("--snippet", required=True, help="Path to snippet file to inject")
+    install_parser.add_argument(
+        "--marker",
+        default="## Ariadne",
+        help="Idempotency marker; if present in CLAUDE.md, skip (default: '## Ariadne')",
+    )
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -225,6 +271,7 @@ def main():
         "query": cmd_query,
         "expand": cmd_expand,
         "stats": cmd_stats,
+        "install": cmd_install,
     }
     dispatch[args.command](args)
 
