@@ -212,7 +212,22 @@ def cmd_install(args):
             print(f"ERROR: --no-scan but DB missing at {db_path}", file=sys.stderr)
             sys.exit(1)
 
-    # 2. Write .mcp.json
+    # 2. Warm embeddings.db so the first MCP query doesn't pay a cold-start tax
+    if not args.no_embed:
+        from store.db import DB as _DB
+        from store.embedding_db import EmbeddingDB
+        from scoring.embedder import build_embeddings
+        _db = _DB(db_path)
+        edb = EmbeddingDB(emb_path)
+        n_nodes = _db.node_count()
+        if edb.is_stale(n_nodes):
+            print(f"==> Building embeddings for {n_nodes} nodes (first run ~30s)")
+            build_embeddings(_db.get_all_nodes(), edb)
+            print("    embeddings ready")
+        else:
+            print("==> Embeddings up to date")
+
+    # 3. Write .mcp.json
     mcp_json = os.path.join(workspace, ".mcp.json")
     cfg = {}
     if os.path.exists(mcp_json):
@@ -231,7 +246,7 @@ def cmd_install(args):
         f.write("\n")
     print(f"==> Wrote {mcp_json}")
 
-    # 3. Inject CLAUDE.md (idempotent via marker)
+    # 4. Inject CLAUDE.md (idempotent via marker)
     with open(snippet_path) as f:
         snippet = f.read()
     marker = args.marker
@@ -324,6 +339,7 @@ def main():
     install_parser.add_argument("workspace", help="Workspace dir (e.g. ~/Desktop/work) — DB lives in <workspace>/.ariadne/")
     install_parser.add_argument("--snippet", default=None, help="Override bundled CLAUDE.md snippet")
     install_parser.add_argument("--no-scan", action="store_true", help="Skip scan; reuse existing DB")
+    install_parser.add_argument("--no-embed", action="store_true", help="Skip warming embeddings.db (first MCP query will rebuild it ~30s)")
     install_parser.add_argument(
         "--marker",
         default="## Ariadne",
