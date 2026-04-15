@@ -484,6 +484,12 @@ the feedback DB.
 - TF-IDF weight tuning for very high-frequency domain tokens
 - Stronger feedback signal: decay tuning, per-service weighting, cross-hint
   generalisation (current boost is count-based within the same hint)
+- Pluggable scanners: register new language/framework scanners (Go, Rust,
+  Python services, etc.) via an entry-point or plugin interface, instead of
+  hand-editing the core `scanner/` package
+- Watch mode: `ariadne scan --watch` hooks into git post-commit / file events
+  to incrementally re-scan only changed files, keeping the DB warm without a
+  manual rebuild
 
 ### Non-goals
 
