@@ -8,7 +8,7 @@
 > Ariadne's thread — a way out of the microservice maze.
 
 **Cross-service API dependency graph and semantic code navigation for microservice architectures.**
-Works as a CLI or as an MCP server for AI coding assistants (Claude Code, Cursor, Windsurf).
+Zero-dependency Python 3.10 CLI; optional MCP server for AI coding assistants (Claude Code, Cursor, Windsurf).
 
 Give it a business term or an endpoint name; it returns the most likely chain of GraphQL
 operations, HTTP endpoints, Kafka topics, and frontend queries that participate in that
@@ -163,13 +163,42 @@ scanners — either by name (string) or as an object with extra options.
 
 ---
 
-## MCP mode (Claude Code, Cursor, Windsurf, etc.)
+## Using Ariadne with AI coding assistants
 
-Ariadne ships as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) stdio
-server. Any MCP-compatible AI coding assistant can use it to query your service graph
-directly from a chat prompt.
+Ariadne has two integration modes. **CLI mode is the default** — it has zero external
+dependencies and works with any AI tool that can run shell commands (Claude Code, Cursor,
+Aider, Codex, Continue).
 
-### One-shot setup
+### Mode 1: CLI (recommended, zero deps)
+
+Just let your AI assistant run the CLI via Bash. Drop this snippet into `CLAUDE.md`
+(Claude Code), `.cursorrules` (Cursor), or equivalent:
+
+```markdown
+## Cross-service API navigation — Ariadne
+
+When debugging or exploring a feature that spans multiple microservices, prefer
+`python3 /abs/path/to/ariadne/main.py` over `grep`-ing individual repos:
+
+- Find the full API chain for a feature:
+  `python3 /abs/path/to/ariadne/main.py query "createOrder"`
+- Expand from a known node (topic, endpoint, mutation):
+  `python3 /abs/path/to/ariadne/main.py expand "order-created"`
+
+Results are ranked clusters of GraphQL / REST / Kafka / frontend nodes — ~¼ the
+tokens of a grep-based search.
+```
+
+No install, no server process, no MCP dependency. Just Python 3.10+.
+
+### Mode 2: MCP server (optional, structured tool schema)
+
+If you prefer native tool calls over shell commands, Ariadne also ships as a
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io) stdio server. This
+exposes `query_chains`, `expand_node`, and `log_feedback` as first-class MCP tools
+so the assistant sees them in its tool list automatically.
+
+**One-shot setup:**
 
 ```bash
 pip install mcp sentence-transformers
@@ -180,7 +209,7 @@ python3 main.py install --config ariadne.config.json
 directory, and injects a usage snippet into `CLAUDE.md` — Claude Code picks it up
 automatically on next launch.
 
-### Manual setup
+**Manual setup:**
 
 ```bash
 pip install mcp
