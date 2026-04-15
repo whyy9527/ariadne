@@ -184,16 +184,34 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="expand_node",
             description=(
-                "Expand from a specific node (endpoint, topic, or operation) to see "
-                "its directly related nodes with similarity scores. Use this to trace "
-                "one hop of the cross-service chain from a known starting point."
+                "One-hop neighbours of a known node (endpoint / Kafka topic / "
+                "GraphQL operation / frontend call), with similarity scores and "
+                "file paths. Read-only; no writes except an implicit positive "
+                "feedback row if called within 10 min of a matching "
+                "query_chains. Returns up to 3 matched source nodes × up to 10 "
+                "neighbours (edges with score ≥ 0.08), plus a `stale_warning` "
+                "field — call `rescan` if non-null.\n\n"
+                "Use AFTER query_chains when you already have a concrete node "
+                "name and want to trace one hop further. Use query_chains "
+                "(not this) when starting from a business term or when you "
+                "don't yet know a node name. Partial, case-insensitive match "
+                "against node id and raw_name; ambiguous inputs return "
+                "multiple source groups."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Endpoint method name, Kafka topic name, or GraphQL operation name (partial match supported)"
+                        "description": (
+                            "Node id or raw name (endpoint method, Kafka "
+                            "topic, GraphQL operation, frontend call). "
+                            "Case-insensitive substring match against both "
+                            "id and raw_name. Prefer exact names copied from "
+                            "a prior query_chains result to avoid ambiguity; "
+                            "very short strings (e.g. 'get') will match many "
+                            "nodes and only the first 3 are expanded."
+                        )
                     }
                 },
                 "required": ["name"]
