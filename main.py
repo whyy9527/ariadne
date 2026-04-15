@@ -16,6 +16,8 @@ import argparse
 import json
 import sys
 import os
+import subprocess
+from datetime import datetime, timezone
 
 DEFAULT_DB = os.path.join(os.path.dirname(__file__), "ariadne.db")
 DEFAULT_EMB = os.path.join(os.path.dirname(__file__), "embeddings.db")
@@ -62,6 +64,20 @@ def _resolve_path(base: str, p: str) -> str:
     return os.path.abspath(os.path.join(base, p))
 
 
+def _git_head_hash(repo_path: str) -> str | None:
+    """Return current HEAD commit hash, or None if not a git repo / git missing."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo_path, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0:
+            return None
+        return out.stdout.strip() or None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
 def cmd_scan(args):
     from normalizer.normalizer import normalize
     from store.db import DB
@@ -72,14 +88,19 @@ def cmd_scan(args):
     cfg_dir = os.path.dirname(cfg_path)
 
     db = DB(args.db)
-    all_nodes = []
+    force = getattr(args, "force", False)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     repos = cfg.get("repos", [])
     if not repos:
         print("ERROR: config has no repos.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[1/5] Scanning {len(repos)} repos (config: {cfg_path}) ...")
+    mode = "FULL rescan" if force else "incremental"
+    print(f"[1/5] Scanning {len(repos)} repos ({mode}; config: {cfg_path}) ...")
+
+    enriched: list[dict] = []
+    any_rescanned = False
 
     for entry in repos:
         name = entry["name"]
@@ -89,7 +110,38 @@ def cmd_scan(args):
             print(f"  {name}: SKIP (not found at {path})")
             continue
 
+        cur_hash = _git_head_hash(path)
+        prev = db.get_repo_state(name)
+        prev_hash = prev["git_hash"] if prev else None
+        # Skip only when git tracking works on both sides, hashes match,
+        # and the repo already has nodes in the DB.
+        existing_nodes = db.get_nodes_by_service(name)
+        reusable = (
+            not force
+            and cur_hash is not None
+            and prev_hash is not None
+            and cur_hash == prev_hash
+            and len(existing_nodes) > 0
+        )
+
+        if reusable:
+            # Reuse existing nodes without re-running scanners.
+            for node in existing_nodes:
+                # Existing rows are already normalized; tokens/field_tokens
+                # come back as lists thanks to _row_to_dict.
+                node.setdefault("tokens", [])
+                node.setdefault("field_tokens", [])
+                enriched.append(node)
+            print(f"  {name}: REUSE {len(existing_nodes)} nodes (HEAD {cur_hash[:8]} unchanged)")
+            continue
+
+        # Re-scan: drop stale nodes for this service first so removed
+        # endpoints / topics actually disappear from the DB.
+        removed = db.delete_nodes_by_service(name)
+        any_rescanned = True
+
         counts = []
+        repo_new_nodes: list[dict] = []
         for sc in scanners:
             if isinstance(sc, str):
                 sc_name, sc_opts = sc, {}
@@ -102,23 +154,44 @@ def cmd_scan(args):
                 continue
             fn = _load_callable(spec)
             nodes = fn(path, name, **sc_opts) if sc_opts else fn(path, name)
-            all_nodes.extend(nodes)
+            repo_new_nodes.extend(nodes)
             counts.append(f"{sc_name}={len(nodes)}")
-        print(f"  {name}: {', '.join(counts) if counts else 'no scanners'}")
 
-    if not all_nodes:
-        print("ERROR: no nodes scanned. Check config paths and scanner types.", file=sys.stderr)
+        # Normalize + upsert immediately so repo state reflects reality
+        # even if a later repo fails.
+        for node in repo_new_nodes:
+            norm = normalize(node["raw_name"], node.get("fields", []))
+            node["tokens"] = norm["tokens"]
+            node["field_tokens"] = norm["field_tokens"]
+            db.upsert_node(node, norm["tokens"], norm["field_tokens"])
+            enriched.append(node)
+
+        db.upsert_repo_state(name, cur_hash, now)
+        db.commit()
+
+        hash_tag = cur_hash[:8] if cur_hash else "no-git"
+        prev_tag = f" (was {prev_hash[:8]})" if prev_hash and cur_hash and prev_hash != cur_hash else ""
+        drop_tag = f" [dropped {removed}]" if removed else ""
+        summary = ", ".join(counts) if counts else "no scanners"
+        print(f"  {name}: RESCAN [{hash_tag}]{prev_tag} {summary}{drop_tag}")
+
+    if not enriched:
+        print("ERROR: no nodes in DB after scan. Check config paths and scanner types.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\n[2/5] Normalizing {len(all_nodes)} nodes...")
-    enriched = []
-    for node in all_nodes:
-        norm = normalize(node["raw_name"], node.get("fields", []))
-        node["tokens"] = norm["tokens"]
-        node["field_tokens"] = norm["field_tokens"]
-        db.upsert_node(node, norm["tokens"], norm["field_tokens"])
-        enriched.append(node)
-    db.commit()
+    if not any_rescanned:
+        print(f"\n[2/5] All repos unchanged — skipping normalize/IDF/scoring.")
+        print(f"[5/5] Done. DB: {args.db}")
+        print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
+        return
+
+    print(f"\n[2/5] Normalizing — {len(enriched)} nodes total")
+    # Re-normalize reused nodes too so IDF sees consistent token lists.
+    for node in enriched:
+        if not node.get("tokens") or not node.get("field_tokens"):
+            norm = normalize(node["raw_name"], node.get("fields", []))
+            node["tokens"] = norm["tokens"]
+            node["field_tokens"] = norm["field_tokens"]
 
     print("[3/5] Computing TF-IDF weights...")
     idf = compute_idf(enriched)
@@ -128,7 +201,8 @@ def cmd_scan(args):
     top_common = sorted(idf.items(), key=lambda x: x[1])[:8]
     print(f"  Most common (dampened): {[t for t,_ in top_common]}")
 
-    print("[4/5] Scoring pairs...")
+    print("[4/5] Scoring pairs (full re-score — edges depend on global IDF)...")
+    db.delete_all_edges()
     edges = score_all_pairs(enriched, min_score=0.12)
     print(f"  Generated {len(edges)} edges above threshold")
 
@@ -204,7 +278,7 @@ def cmd_install(args):
     # 1. Scan (unless --no-scan)
     if not args.no_scan:
         print(f"==> Scanning via {config_path}")
-        scan_args = argparse.Namespace(config=config_path, db=db_path)
+        scan_args = argparse.Namespace(config=config_path, db=db_path, force=args.force)
         cmd_scan(scan_args)
     else:
         print(f"==> --no-scan; expecting DB at {db_path}")
@@ -289,6 +363,118 @@ To rebuild the DB:
 """)
 
 
+def cmd_config_validate(args):
+    """Static sanity check on ariadne.config.json."""
+    cfg_path = os.path.abspath(args.config)
+    cfg = _load_config(cfg_path)
+    cfg_dir = os.path.dirname(cfg_path)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    repos = cfg.get("repos", [])
+    if not isinstance(repos, list) or not repos:
+        errors.append("`repos` must be a non-empty array")
+        print_issues(errors, warnings)
+        sys.exit(1)
+
+    declared_names = set()
+    for i, entry in enumerate(repos):
+        loc = f"repos[{i}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{loc}: not an object")
+            continue
+        name = entry.get("name")
+        path = entry.get("path")
+        scanners = entry.get("scanners", [])
+
+        if not name or not isinstance(name, str):
+            errors.append(f"{loc}: missing/invalid `name`")
+            continue
+        loc = f"repos[{i}]({name})"
+        if name in declared_names:
+            errors.append(f"{loc}: duplicate repo name")
+        declared_names.add(name)
+
+        if not path or not isinstance(path, str):
+            errors.append(f"{loc}: missing/invalid `path`")
+        else:
+            abs_path = _resolve_path(cfg_dir, path)
+            if not os.path.isdir(abs_path):
+                errors.append(f"{loc}: path not found → {abs_path}")
+
+        if not isinstance(scanners, list):
+            errors.append(f"{loc}: `scanners` must be an array")
+            continue
+        if not scanners:
+            warnings.append(f"{loc}: empty `scanners` — repo will be skipped")
+
+        for j, sc in enumerate(scanners):
+            sc_loc = f"{loc}.scanners[{j}]"
+            if isinstance(sc, str):
+                sc_name, sc_opts = sc, {}
+            elif isinstance(sc, dict):
+                sc_name = sc.get("type")
+                sc_opts = {k: v for k, v in sc.items() if k != "type"}
+                if not sc_name:
+                    errors.append(f"{sc_loc}: missing `type`")
+                    continue
+            else:
+                errors.append(f"{sc_loc}: must be string or object")
+                continue
+
+            if sc_name not in SCANNER_REGISTRY:
+                errors.append(
+                    f"{sc_loc}: unknown scanner type '{sc_name}' "
+                    f"(known: {sorted(SCANNER_REGISTRY)})"
+                )
+                continue
+
+            if sc_name == "backend_clients":
+                ctm = sc_opts.get("client_target_map", {})
+                if not isinstance(ctm, dict):
+                    errors.append(f"{sc_loc}: `client_target_map` must be an object")
+                else:
+                    for client, target in ctm.items():
+                        # Target must be a repo we declare in this same config
+                        # (otherwise the edge has no landing point).
+                        if target not in declared_names and target not in {
+                            e.get("name") for e in repos if isinstance(e, dict)
+                        }:
+                            warnings.append(
+                                f"{sc_loc}: client_target_map['{client}'] → "
+                                f"'{target}' is not a declared repo"
+                            )
+            if sc_name == "frontend_rest":
+                bcs = sc_opts.get("base_class_service", {})
+                if not isinstance(bcs, dict):
+                    errors.append(f"{sc_loc}: `base_class_service` must be an object")
+                else:
+                    declared = {e.get("name") for e in repos if isinstance(e, dict)}
+                    for cls, target in bcs.items():
+                        if target not in declared:
+                            warnings.append(
+                                f"{sc_loc}: base_class_service['{cls}'] → "
+                                f"'{target}' is not a declared repo"
+                            )
+
+    print_issues(errors, warnings)
+    if errors:
+        sys.exit(1)
+    print(f"\nOK — {len(repos)} repos, 0 errors, {len(warnings)} warnings.")
+
+
+def print_issues(errors: list[str], warnings: list[str]):
+    if errors:
+        print("ERRORS:", file=sys.stderr)
+        for e in errors:
+            print(f"  ✗ {e}", file=sys.stderr)
+    if warnings:
+        print("WARNINGS:", file=sys.stderr)
+        for w in warnings:
+            print(f"  ! {w}", file=sys.stderr)
+
+
 def cmd_stats(args):
     from store.db import DB
     from collections import Counter
@@ -321,6 +507,11 @@ def main():
         default=DEFAULT_CONFIG,
         help="Config JSON file listing repos and scanners (default: ariadne.config.json)",
     )
+    scan_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force full re-scan of all repos, ignoring stored git HEAD hashes",
+    )
 
     q_parser = sub.add_parser("query", help="Query by business term")
     q_parser.add_argument("hint", nargs="+", help="Business term or operation name")
@@ -331,6 +522,15 @@ def main():
 
     sub.add_parser("stats", help="Show DB statistics")
 
+    config_parser = sub.add_parser("config", help="Config subcommands")
+    config_sub = config_parser.add_subparsers(dest="config_command")
+    validate_parser = config_sub.add_parser("validate", help="Validate ariadne.config.json")
+    validate_parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG,
+        help="Config JSON file (default: ariadne.config.json)",
+    )
+
     install_parser = sub.add_parser(
         "install",
         help="One-shot setup: scan, write <workspace>/.mcp.json, inject CLAUDE.md",
@@ -339,6 +539,7 @@ def main():
     install_parser.add_argument("workspace", help="Workspace dir (e.g. ~/Desktop/work) — DB lives in <workspace>/.ariadne/")
     install_parser.add_argument("--snippet", default=None, help="Override bundled CLAUDE.md snippet")
     install_parser.add_argument("--no-scan", action="store_true", help="Skip scan; reuse existing DB")
+    install_parser.add_argument("--force", action="store_true", help="Force full re-scan instead of incremental")
     install_parser.add_argument("--no-embed", action="store_true", help="Skip warming embeddings.db (first MCP query will rebuild it ~30s)")
     install_parser.add_argument(
         "--marker",
@@ -358,6 +559,12 @@ def main():
         "stats": cmd_stats,
         "install": cmd_install,
     }
+    if args.command == "config":
+        if args.config_command == "validate":
+            cmd_config_validate(args)
+            return
+        config_parser.print_help()
+        sys.exit(1)
     dispatch[args.command](args)
 
 

@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS token_idf (
     idf     REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS repo_state (
+    name        TEXT PRIMARY KEY,
+    git_hash    TEXT,
+    scanned_at  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_type   ON nodes(type);
@@ -105,6 +111,32 @@ class DB:
     def get_all_nodes(self) -> list[dict]:
         rows = self.conn.execute("SELECT * FROM nodes").fetchall()
         return [_row_to_dict(r) for r in rows]
+
+    def get_nodes_by_service(self, service: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM nodes WHERE service=?", (service,)
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def delete_nodes_by_service(self, service: str) -> int:
+        cur = self.conn.execute("DELETE FROM nodes WHERE service=?", (service,))
+        return cur.rowcount
+
+    def delete_all_edges(self):
+        self.conn.execute("DELETE FROM edges")
+
+    def get_repo_state(self, name: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT name, git_hash, scanned_at FROM repo_state WHERE name=?", (name,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_repo_state(self, name: str, git_hash: str | None, scanned_at: str):
+        self.conn.execute(
+            """INSERT OR REPLACE INTO repo_state (name, git_hash, scanned_at)
+               VALUES (?,?,?)""",
+            (name, git_hash, scanned_at),
+        )
 
     def get_node(self, node_id: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
