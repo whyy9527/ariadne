@@ -238,7 +238,58 @@ Tools exposed:
 |----------------|---------------------------------------|----------------------------------------|
 | `query_chains` | `hint`, `top_n` (default 3)           | Business term → cross-service clusters |
 | `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
-| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Record whether results were useful     |
+| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manually record whether results were useful (most feedback is now collected implicitly — see Feedback loop below) |
+
+---
+
+## Feedback loop
+
+Ariadne tracks which results you actually use and gradually adjusts cluster ranking
+to match your team's vocabulary — without any model training or external uploads.
+The feedback database (`feedback.db`) is **local only**; it is never uploaded anywhere
+and is not shared across users. In an open-source or multi-developer setup each person
+starts cold and builds their own signal.
+
+### Collection — implicit and manual
+
+**Implicit** (the default path): every `query_chains` call caches the returned clusters
+in memory for up to 10 minutes. If you then call `expand_node(name)` and the name
+substring-matches a node in one of those pending clusters, Ariadne automatically writes
+an `accepted=True` row to `feedback.db`. No extra call needed; the follow-up `expand_node`
+is the signal.
+
+**Manual**: call `log_feedback(hint, accepted, node_ids, ...)` to record explicit
+thumbs-up / thumbs-down. Useful if you want to mark a result wrong, or if you are
+using the CLI rather than the MCP server. The `source` column in `feedback.db`
+distinguishes `'implicit_expand'` from `'manual'` rows.
+
+### Consumption — boost rerank
+
+After recall, `query()` looks up `feedback.db` for the same hint and counts prior
+accepted nodes per cluster:
+
+```
+boost = sum(prior_accepted_count for each node in cluster that appeared in past accepted results)
+final_score = confidence + 0.15 * boost
+```
+
+Clusters that have been useful before float up; new hints with no history are
+unaffected. The weight (`0.15`) and decay window (`90 days`) are intentionally
+conservative — the lexical confidence score still dominates.
+
+When boost reranking fires, Ariadne prints to stderr:
+
+```
+[ariadne] boost applied: hint=createOrder clusters_reranked=3
+```
+
+To disable boost reranking entirely, set the environment variable:
+
+```bash
+export ARIADNE_FEEDBACK_BOOST=0
+```
+
+The JSON shape returned by `query_chains` does not change whether boost is on or off.
 
 ---
 
@@ -283,7 +334,19 @@ they get back compact structured clusters instead of raw file grep results.
 
 No. Pure static analysis. It reads your source files, indexes them into a local
 SQLite database (`ariadne.db` + `embeddings.db`), and queries offline. No network
-calls, no agents, no external services.
+calls, no agents, no external services. Usage feedback is stored in a local
+`feedback.db` and is never uploaded.
+
+---
+
+**Q: Results feel generic at first. Will they improve?**
+
+Yes, gradually. As you use Ariadne, implicit feedback is collected from your
+`expand_node` follow-ups and written to `feedback.db`. The boost rerank step
+(`confidence + 0.15 * boost`) then promotes clusters that have been useful for
+similar hints before. The effect is incremental — results on day one are pure
+lexical ranking; results after a few weeks of use reflect your team's actual
+navigation patterns. This is a simple count-based boost, not a learned model.
 
 ---
 
@@ -418,8 +481,8 @@ the feedback DB.
 - Wider TS scan (currently limited to files matching `service|api|hook|client|request`
   or `index.ts`)
 - TF-IDF weight tuning for very high-frequency domain tokens
-- Pair re-ranker trained on real usage feedback (only after we have enough
-  `log_feedback` data)
+- Stronger feedback signal: decay tuning, per-service weighting, cross-hint
+  generalisation (current boost is count-based within the same hint)
 
 ### Non-goals
 
