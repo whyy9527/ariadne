@@ -162,6 +162,19 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="ariadne_help",
+            description=(
+                "Return a quick setup and usage guide for Ariadne. Call this first "
+                "when you are unsure how to use Ariadne, how to index your own "
+                "microservices, or why query_chains returned no results. Always "
+                "safe to call — no DB required."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            }
+        ),
+        Tool(
             name="log_feedback",
             description=(
                 "Record whether Ariadne results were useful. Call this after using "
@@ -200,7 +213,9 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "query_chains":
+    if name == "ariadne_help":
+        return [TextContent(type="text", text=_HELP_TEXT)]
+    elif name == "query_chains":
         db = _get_db(_DB_PATH)
         edb = _get_edb(_EMB_PATH, db)
         return await _query_chains(db, edb, arguments)
@@ -212,6 +227,58 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await _log_feedback(fdb, arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+_HELP_TEXT = """\
+Ariadne — cross-service API dependency graph for microservice codebases.
+
+WHAT IT DOES
+  Given a business term or endpoint name, returns the chain of GraphQL
+  operations, HTTP endpoints, Kafka topics, and frontend queries that
+  participate in that feature across all your services.
+
+TOOLS
+  query_chains(hint, top_n)  — Business term → ranked cross-service clusters.
+                               Best for: "what does createOrder involve?"
+  expand_node(name)          — Known node → direct neighbours with scores.
+                               Best for: "what listens to order-created?"
+  log_feedback(hint, ...)    — Record whether results were useful.
+  ariadne_help()             — This message.
+
+QUICK SETUP (for your own codebase)
+  1. Create ariadne.config.json in your workspace:
+       {
+         "repos": [
+           { "name": "gateway",    "path": "../gateway",    "scanners": ["graphql"] },
+           { "name": "orders-svc", "path": "../orders-svc", "scanners": ["http", "kafka"] },
+           { "name": "web",        "path": "../web",        "scanners": ["frontend_graphql", "frontend_rest"] }
+         ]
+       }
+  2. python3 main.py install --config ariadne.config.json
+     (scans repos, builds DB, writes .mcp.json, injects CLAUDE.md snippet)
+  3. Restart Claude Code — ariadne shows up as an MCP server.
+
+SUPPORTED SCANNERS
+  graphql            .graphql / .gql SDL → Query / Mutation / Subscription
+  http               Spring @RestController (Java/Kotlin) → HTTP endpoints
+  kafka              application.yaml + @KafkaListener + KafkaTemplate.send
+  backend_clients    Spring RestClient / RestTemplate outbound calls
+  frontend_graphql   TypeScript gql`` literals → frontend Query/Mutation
+  frontend_rest      axiosRequest.<verb>(...) and fetch(...) calls
+  cube               cube.js cube(...) model definitions
+
+WHY RESULTS MAY BE EMPTY
+  - DB not built yet — run `python3 main.py scan --config ariadne.config.json`
+  - The hosted demo DB only contains a small fictional microservice stack
+    (orders-svc, billing-svc, users-svc, gateway, web). Try hints like
+    "createOrder", "userProfile", "order-created", "refundPayment".
+  - Your hint uses tokens not present in any node name or field.
+    Try a broader business term or an exact endpoint name.
+
+MORE INFO
+  Repo:  https://github.com/whyy9527/ariadne
+  Docs:  README.md sections "Quick start", "Available scanners", "FAQ"
+"""
 
 
 async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
