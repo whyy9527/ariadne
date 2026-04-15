@@ -10,40 +10,29 @@
 > Ariadne's thread — a way out of the microservice maze.
 
 **Cross-service API dependency graph and semantic code navigation for microservice architectures.**
-Zero-dependency Python 3.10 CLI; optional MCP server for AI coding assistants (Claude Code, Cursor, Windsurf).
-
-Give it a business term or an endpoint name; it returns the most likely chain of GraphQL
-operations, HTTP endpoints, Kafka topics, and frontend queries that participate in that
-feature — across all your services at once.
-
-Ariadne never modifies your repos. It is read-only static analysis built on
-SQLite + TF-IDF + (optional) embeddings. The CLI has no external dependencies;
-the MCP mode needs `pip install mcp`.
+MCP stdio server for AI coding assistants (Claude Code, Cursor, Windsurf), with a
+CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF + optional embeddings.
 
 ---
 
 ## Who is this for
 
-- **Backend engineers** debugging a feature that spans 4+ microservices — find every
-  endpoint, topic, and query involved without `grep`-ing each repo.
-- **AI coding assistants** (Claude Code, Cursor) — attach Ariadne as an MCP server so
-  the model gets a compact, structured view of your service dependency graph instead of
-  raw grep output.
-- **New team members** onboarding to a large microservice codebase — map any feature
-  to its full API chain in seconds.
-- **Code reviewers** doing cross-service impact analysis — see what else a change in
-  one service might affect.
+- **AI coding assistants** (Claude Code, Cursor, Windsurf) — a structured cross-service
+  dependency view sized for the context window, in place of raw `grep` output.
+- **Backend engineers** tracing a feature across 4+ services — GraphQL, REST, Kafka,
+  and frontend calls resolved in one query.
+- **Platform and reviewers** doing cross-service impact analysis — surface the full
+  call chain a change in one service touches before it ships.
+- **Onboarding engineers** mapping an unfamiliar microservice topology from a single
+  business term.
 
 ---
 
 ## Why
 
-`grep` finds every *implementation* line that matches a token. Ariadne indexes
-only the *contract layer* — GraphQL mutations, REST endpoints, Kafka topics,
-frontend queries — and nothing else. A hint like `createOrder` returns ~3
-structured clusters (~500 tokens) instead of 40+ grep hits (~2000 tokens),
-with zero noise from DTOs, tests, and configs. That narrowness is what makes
-results compact enough for an AI context window.
+Ariadne indexes only the *contract layer* — GraphQL mutations, REST endpoints,
+Kafka topics, frontend queries — nothing else. That narrowness is what makes
+results fit an AI context window.
 
 | Approach | Problem Ariadne solves |
 |---|---|
@@ -82,10 +71,7 @@ tokens, with the contract layer buried.
 
 ## Golden path
 
-The intended workflow when an AI assistant (or a human) drives Ariadne via
-the MCP server. Shared verbatim with `ariadne_help`; single source is
-`docs_source.py` — if you edit the text below, also edit the constant there
-(or vice versa). The pre-commit hook runs a substring check.
+The intended workflow when an AI assistant drives Ariadne via the MCP server.
 
 ```
 Golden path — driving Ariadne from an AI conversation:
@@ -140,14 +126,7 @@ manifest), writes `<workspace>/.mcp.json`, and injects a usage snippet into
 new code (or let the assistant call `rescan` from inside the conversation
 when it sees a `stale_warning`).
 
-Full signature (kept in sync with argparse via `docs_source.py`):
-
-```
-python3 main.py install [-h] [--snippet SNIPPET] [--no-scan] [--force] [--marker MARKER] config workspace
-```
-
-Flags: `--no-scan` (skip re-scan), `--force` (overwrite existing `.mcp.json`),
-`--snippet PATH`, `--marker STRING`.
+Flags: `--no-scan`, `--force`, `--snippet PATH`, `--marker STRING`.
 
 ### Tools the assistant sees
 
@@ -158,20 +137,6 @@ Flags: `--no-scan` (skip re-scan), `--force` (overwrite existing `.mcp.json`),
 | `rescan`       | *(none)*                              | Refresh the index in place when a response has a `stale_warning`; git-hash incremental, returns `{nodes, duration_ms}` |
 | `ariadne_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
 | `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see Feedback loop) |
-
-### Using as a plain CLI (optional)
-
-If your assistant can't do MCP but can run Bash, every MCP tool has a CLI
-twin with zero runtime dependencies beyond Python 3.10:
-
-```bash
-python3 main.py scan --config ariadne.config.json
-python3 main.py query "createOrder"
-python3 main.py expand "order-created"
-python3 main.py stats
-```
-
-Useful for scripting and debugging; the MCP path is the recommended one.
 
 ### Config format
 
@@ -300,8 +265,7 @@ final_score = confidence + 0.15 * sum(prior_accepted_count per node in cluster)
 
 Weight (`0.15`) and decay window (`90 days`) are intentionally conservative —
 lexical confidence still dominates. Clusters with no history are unaffected.
-Disable with `export ARIADNE_FEEDBACK_BOOST=0`; JSON shape is unchanged either
-way. Stderr log when boost fires: `[ariadne] boost applied: hint=... clusters_reranked=N`.
+Disable with `export ARIADNE_FEEDBACK_BOOST=0`; JSON shape is unchanged either way.
 
 ---
 
@@ -333,9 +297,10 @@ GraphQL SDL; Java / Kotlin Spring (`@RestController`, `@KafkaListener`,
 cube.js. Add more via the `BaseScanner` interface (see *Custom scanners*).
 
 **Can I use it without an AI assistant — just as a CLI?**
-Yes. `python3 main.py query / expand / stats` has zero dependencies beyond
-Python 3.10. `mcp`, `onnxruntime`, `tokenizers`, `huggingface_hub` are only
-needed for MCP mode and semantic recall fallback.
+Yes. Every MCP tool has a CLI twin (`python3 main.py scan / query / expand / stats`)
+with zero dependencies beyond Python 3.10. `mcp`, `onnxruntime`, `tokenizers`,
+`huggingface_hub` are only needed for MCP mode and semantic recall fallback.
+MCP is the recommended path.
 
 ---
 
@@ -362,8 +327,8 @@ ariadne/
 │   └── feedback_db.py            # SQLite: usage feedback
 ├── query/
 │   └── query.py                  # query / expand entry points
-├── main.py                       # CLI
-├── mcp_server.py                 # MCP stdio server
+├── mcp_server.py                 # MCP stdio server (primary interface)
+├── main.py                       # CLI (twin of MCP tools)
 └── tests/                        # pytest suite (semantic_hint, feedback_boost, ...)
 ```
 
@@ -389,9 +354,6 @@ role_mult    = 1.3   for complementary pairs
                       GraphQL Query ↔ Cube Query ↔ HTTP GET)
 service_mult = 1.25  cross-service / 0.8 same-service
 ```
-
-The factors are multiplicative, so `base = 0` always means `score = 0`. Service
-and role only amplify real lexical overlap; they cannot fabricate a link.
 
 ### Clustering
 
@@ -445,8 +407,7 @@ ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
 
 ## Roadmap
 
-- More Kafka sources (already covers `application.yaml` + `@KafkaListener` +
-  `KafkaTemplate.send`)
+- More Kafka sources beyond `application.yaml` + `@KafkaListener` + `KafkaTemplate.send`
 - TF-IDF weight tuning for very high-frequency domain tokens
 - Stronger feedback signal: decay tuning, per-service weighting, cross-hint
   generalisation (current boost is count-based within the same hint)
