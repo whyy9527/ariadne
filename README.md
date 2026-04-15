@@ -74,29 +74,20 @@ tokens, with the contract layer buried.
 The intended workflow when an AI assistant drives Ariadne via the MCP server.
 
 ```
-Golden path — driving Ariadne from an AI conversation:
+1. query_chains(hint="createOrder")
+     → ranked clusters across services. Start here for cross-service context.
 
-  1. query_chains(hint="createOrder")
-       → ranked clusters of GraphQL / REST / Kafka / frontend nodes across
-         services. Use this first to build cross-service context.
+2. expand_node(name="order-created")
+     → one-hop neighbours of a known node. Within 10 min of a matching
+       query_chains, this auto-logs positive feedback — the expand IS the signal.
 
-  2. expand_node(name="order-created")
-       → one-hop neighbours of a specific node you want to trace.
-         If called within 10 minutes of a matching query_chains, Ariadne
-         automatically writes a positive feedback row — no extra call
-         needed. The follow-up expand IS the signal.
+3. Read the files the returned clusters / neighbours point at.
 
-  3. Read the files the returned clusters / neighbours point at.
-
-  4. log_feedback(hint, accepted=False, ...) ONLY when a result was
-     misleading. Most feedback is captured implicitly in step 2;
-     log_feedback is the manual escape hatch for thumbs-down.
-
-  Staleness: if query_chains or expand_node return a non-null
-  `stale_warning` field, call rescan() once — it re-scans the repos
-  listed in the install-time config, rebuilds embeddings if needed,
-  and clears the warning. Then retry your original query.
+4. log_feedback(hint, accepted=False, ...)
+     → manual thumbs-down only. Positive feedback is captured in step 2.
 ```
+
+On `stale_warning`, call `rescan()` and retry. See FAQ.
 
 ---
 
@@ -204,9 +195,7 @@ somewhere Python can import it, and reference the class by dotted path in
 }
 ```
 
-The value of `"type"` must be `"module.path:ClassName"` — a Python importable
-module path, a colon, then the class name.  Every key besides `"type"` is
-passed as a keyword argument to `__init__`.
+`"type"` is `"module.path:ClassName"`. Every other key is passed to `__init__`.
 
 ```python
 # my_scanners/go_scanner.py
@@ -217,23 +206,12 @@ class GoRouteScanner(BaseScanner):
         self.route_file = route_file
 
     def scan(self, repo_path: str, service: str) -> list[dict]:
-        # ... parse repo_path/self.route_file ...
-        return [
-            {
-                "id": f"{service}::http::GET::/ping",
-                "type": "http_endpoint",
-                "raw_name": "ping",
-                "service": service,
-                "source_file": self.route_file,
-                "method": "GET",
-                "path": "/ping",
-                "fields": [],
-            }
-        ]
+        # parse repo_path/self.route_file, return node dicts
+        return [{"id": f"{service}::http::GET::/ping", "type": "http_endpoint",
+                 "raw_name": "ping", "service": service,
+                 "source_file": self.route_file,
+                 "method": "GET", "path": "/ping", "fields": []}]
 ```
-
-Zero install required — no entry points, no `pyproject.toml` changes.
-Just make sure the module is importable from wherever you run `python3 main.py`.
 
 ---
 
@@ -254,16 +232,9 @@ step (`confidence + 0.15 * boost`) promotes clusters that have been useful for
 similar hints. Day-one results are pure lexical ranking; after a few weeks they
 reflect your team's navigation patterns. Count-based, not a learned model.
 
-**Which languages and frameworks are supported?**
-GraphQL SDL; Java / Kotlin Spring (`@RestController`, `@KafkaListener`,
-`application.yaml`, `RestClient`); TypeScript (`gql\`\``, `axios`, `fetch`);
-cube.js. Add more via the `BaseScanner` interface (see *Custom scanners*).
-
 **Can I use it without an AI assistant — just as a CLI?**
-Yes. Every MCP tool has a CLI twin (`python3 main.py scan / query / expand / stats`)
-with zero dependencies beyond Python 3.10. `mcp`, `onnxruntime`, `tokenizers`,
-`huggingface_hub` are only needed for MCP mode and semantic recall fallback.
-MCP is the recommended path.
+Yes. `python3 main.py scan / query / expand / stats` — zero deps beyond
+Python 3.10. MCP is still the recommended path.
 
 ---
 
@@ -271,31 +242,17 @@ MCP is the recommended path.
 
 ```
 ariadne/
-├── scanner/
-│   ├── graphql_scanner.py        # GraphQL SDL → Query/Mutation/Type
-│   ├── http_scanner.py           # Spring @RestController → HTTP endpoints
-│   ├── kafka_scanner.py          # application.yaml + @KafkaListener + producer
-│   ├── frontend_scanner.py       # TS gql`` → Frontend Query/Mutation
-│   ├── frontend_rest_scanner.py  # axios/fetch → Frontend REST calls
-│   ├── backend_client_scanner.py # RestClient + pathSegment → outbound calls
-│   └── cube_scanner.py           # cube.js model/*.js → analytics cubes
-├── normalizer/
-│   └── normalizer.py             # camelCase/snake/kebab → tokens
-├── scoring/
-│   ├── engine.py                 # IDF-weighted Jaccard + clustering
-│   └── embedder.py               # bge-small recall fallback + reranker
-├── store/
-│   ├── db.py                     # SQLite: nodes / edges / token_idf
-│   ├── embedding_db.py           # SQLite: node_id → float32 vector
-│   └── feedback_db.py            # SQLite: usage feedback
-├── query/
-│   └── query.py                  # query / expand entry points
-├── mcp_server.py                 # MCP stdio server (primary interface)
-├── main.py                       # CLI (twin of MCP tools)
-└── tests/                        # pytest suite (semantic_hint, feedback_boost, ...)
+├── scanner/       # per-framework extractors → node dicts
+├── normalizer/    # camelCase/snake/kebab → tokens
+├── scoring/       # IDF-Jaccard engine + bge-small embedder
+├── store/         # SQLite: ariadne.db / embeddings.db / feedback.db
+├── query/         # query / expand entry points
+├── mcp_server.py  # MCP stdio server
+├── main.py        # CLI
+└── tests/         # pytest suite
 ```
 
-### Scoring (the short version)
+### Scoring
 
 The math is information retrieval, not graph theory. Node names are tokenized
 (`createOrder` → `["create", "order"]`) and compared with IDF-weighted Jaccard:
@@ -343,8 +300,8 @@ is used for two narrow jobs:
   `top_n`.
 
 The ONNX model is ~34 MB (int8 quantized) and runs on CPU via `onnxruntime`.
-Cold start is ~0.3s (vs ~13s with the previous PyTorch-based implementation).
-Vectors are cached in `embeddings.db`; only the query hint is embedded at query time.
+Cold start ~0.3s. Vectors cached in `embeddings.db`; only the query hint
+is embedded at query time.
 
 ### Feedback boost
 
@@ -376,9 +333,8 @@ python3 tests/test_implicit_feedback.py
 python3 tests/test_onnx_embedder.py
 ```
 
-Covers normalizer, scoring, store, query/expand integration, embeddings,
-feedback boost, implicit feedback, and the ONNX embedder. A pre-commit hook
-at `hooks/pre-commit` runs `test_semantic_hint.py` — enable once per clone with:
+A pre-commit hook at `hooks/pre-commit` runs `test_semantic_hint.py` —
+enable once per clone with:
 
 ```bash
 ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
