@@ -121,6 +121,17 @@ def _get_fdb(fb_path: str):
     return _fdb
 
 
+def _reset_db_cache() -> None:
+    """
+    Drop cached DB / embedding handles so the next tool call re-opens them
+    against the freshly rescanned files. Feedback DB is unaffected by rescan,
+    so it stays warm.
+    """
+    global _db, _edb
+    _db = None
+    _edb = None
+
+
 def _get_edb(emb_path: str, db):
     """Lazy-load EmbeddingDB. Auto-builds if missing or stale (node count changed)."""
     global _edb
@@ -202,6 +213,21 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="rescan",
+            description=(
+                "Refresh the Ariadne index from inside the conversation. Call this "
+                "when query_chains or expand_node returned a `stale_warning`, or "
+                "after you know the user's code has changed. Re-scans every repo "
+                "listed in the install-time ariadne.config.json, rebuilds embeddings "
+                "if nodes changed, and invalidates cached DB handles so the next "
+                "query sees fresh data. No arguments; zero configuration."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            }
+        ),
+        Tool(
             name="log_feedback",
             description=(
                 "Record whether Ariadne results were useful. Call this after using "
@@ -252,8 +278,70 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "log_feedback":
         fdb = _get_fdb(_FB_PATH)
         return await _log_feedback(fdb, arguments)
+    elif name == "rescan":
+        return await _rescan()
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+async def _rescan() -> list[TextContent]:
+    """
+    Refresh the index by re-running scan + embed against the install-time
+    config, then drop cached DB handles. Reads config_path from the manifest
+    written by `install`.
+    """
+    manifest_path = os.path.join(os.path.dirname(_DB_PATH), "manifest.json")
+    if not os.path.isfile(manifest_path):
+        return [TextContent(
+            type="text",
+            text=json.dumps({
+                "error": (
+                    "No manifest at "
+                    f"{manifest_path}. This index was built by an older install "
+                    "that didn't persist the config path. Re-run "
+                    "`python3 main.py install <config> <workspace>` from a shell "
+                    "once to enable in-conversation rescan."
+                )
+            })
+        )]
+
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        config_path = manifest["config_path"]
+    except (json.JSONDecodeError, KeyError) as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"error": f"Manifest unreadable: {e}"})
+        )]
+
+    if not os.path.isfile(config_path):
+        return [TextContent(
+            type="text",
+            text=json.dumps({
+                "error": (
+                    f"Config file moved or deleted: {config_path}. "
+                    "Re-run `install` with the new path."
+                )
+            })
+        )]
+
+    import main as _main
+    try:
+        summary = _main.run_scan_and_embed(config_path, _DB_PATH, _EMB_PATH)
+    except SystemExit as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"error": f"Scan aborted (exit {e.code}); check config and repo paths."})
+        )]
+    except Exception as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"error": f"Rescan failed: {type(e).__name__}: {e}"})
+        )]
+
+    _reset_db_cache()
+    return [TextContent(type="text", text=json.dumps(summary))]
 
 
 def _detect_config_issues() -> list[str]:

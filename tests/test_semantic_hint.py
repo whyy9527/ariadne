@@ -744,6 +744,113 @@ def test_help_text_contains_all_docs_fragments():
 
 
 # ──────────────────────────────────────────────
+# Rescan MCP tool — end-to-end
+# ──────────────────────────────────────────────
+
+def _write(path: str, body: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(body)
+
+
+def test_rescan_missing_manifest_returns_error():
+    """No manifest.json → rescan returns error JSON, does not crash."""
+    import asyncio
+    import json as _json
+    import mcp_server
+
+    with tempfile.TemporaryDirectory() as workspace:
+        data_dir = os.path.join(workspace, ".ariadne")
+        os.makedirs(data_dir)
+        original_db, original_emb = mcp_server._DB_PATH, mcp_server._EMB_PATH
+        mcp_server._DB_PATH = os.path.join(data_dir, "ariadne.db")
+        mcp_server._EMB_PATH = os.path.join(data_dir, "embeddings.db")
+        try:
+            result = asyncio.run(mcp_server._rescan())
+            payload = _json.loads(result[0].text)
+            assert "error" in payload
+            assert "manifest" in payload["error"].lower()
+        finally:
+            mcp_server._DB_PATH = original_db
+            mcp_server._EMB_PATH = original_emb
+
+
+def test_rescan_refreshes_index_and_invalidates_cache():
+    """
+    End-to-end: install populates a temp workspace, we add a new GraphQL file
+    to one of the scanned repos, _rescan() sees it, node count grows, and the
+    cached DB handle is reset so the next query sees fresh data.
+    """
+    import asyncio
+    import json as _json
+    import mcp_server
+    import main as _main
+
+    with tempfile.TemporaryDirectory() as workspace:
+        # 1. Build a minimal fake repo with one .graphql file
+        repo_dir = os.path.join(workspace, "repo")
+        graphql_dir = os.path.join(repo_dir, "schema")
+        _write(
+            os.path.join(graphql_dir, "order.graphql"),
+            "type Mutation {\n  createOrder(input: String): String\n}\n",
+        )
+
+        # 2. Write config pointing at that repo
+        config_path = os.path.join(workspace, "ariadne.config.json")
+        _write(config_path, _json.dumps({
+            "repos": [{"name": "fake", "path": repo_dir, "scanners": ["graphql"]}]
+        }))
+
+        # 3. Simulate an install: run scan_and_embed + write manifest
+        data_dir = os.path.join(workspace, ".ariadne")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "ariadne.db")
+        emb_path = os.path.join(data_dir, "embeddings.db")
+        manifest_path = os.path.join(data_dir, "manifest.json")
+
+        _main.run_scan_and_embed(config_path, db_path, emb_path)
+        _write(manifest_path, _json.dumps({"config_path": config_path}))
+
+        # Verify install-time state
+        from store.db import DB
+        nodes_before = DB(db_path).node_count()
+        assert nodes_before >= 1, "initial scan should find at least createOrder"
+
+        # 4. Point mcp_server at this workspace and warm its DB cache
+        original_db, original_emb = mcp_server._DB_PATH, mcp_server._EMB_PATH
+        mcp_server._DB_PATH = db_path
+        mcp_server._EMB_PATH = emb_path
+        mcp_server._reset_db_cache()
+        try:
+            cached_before = mcp_server._get_db(db_path)
+            assert cached_before is mcp_server._db, "cache should be warm"
+
+            # 5. Add a new .graphql file — rescan must pick it up
+            _write(
+                os.path.join(graphql_dir, "user.graphql"),
+                "type Query {\n  userProfile(id: ID): String\n}\n",
+            )
+
+            result = asyncio.run(mcp_server._rescan())
+            payload = _json.loads(result[0].text)
+            assert "error" not in payload, f"rescan errored: {payload}"
+            assert "nodes" in payload and "duration_ms" in payload
+            assert payload["nodes"] > nodes_before, (
+                f"nodes should grow after adding a file: {nodes_before} → {payload['nodes']}"
+            )
+
+            # 6. Cache must be invalidated — _db is None until next _get_db()
+            assert mcp_server._db is None, "rescan should reset cached DB handle"
+            cached_after = mcp_server._get_db(db_path)
+            assert cached_after is not cached_before, "re-opened handle must be a new object"
+            assert cached_after.node_count() == payload["nodes"]
+        finally:
+            mcp_server._DB_PATH = original_db
+            mcp_server._EMB_PATH = original_emb
+            mcp_server._reset_db_cache()
+
+
+# ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
 
@@ -786,6 +893,8 @@ if __name__ == "__main__":
         test_frontend_rest_stories_file_skipped,
         test_readme_contains_all_docs_fragments,
         test_help_text_contains_all_docs_fragments,
+        test_rescan_missing_manifest_returns_error,
+        test_rescan_refreshes_index_and_invalidates_cache,
     ]
 
     passed = failed = 0

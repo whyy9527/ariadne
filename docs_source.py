@@ -56,7 +56,12 @@ Golden path — driving Ariadne from an AI conversation:
 
   4. log_feedback(hint, accepted=False, ...) ONLY when a result was
      misleading. Most feedback is captured implicitly in step 2;
-     log_feedback is the manual escape hatch for thumbs-down."""
+     log_feedback is the manual escape hatch for thumbs-down.
+
+  Staleness: if query_chains or expand_node return a non-null
+  `stale_warning` field, call rescan() once — it re-scans the repos
+  listed in the install-time config, rebuilds embeddings if needed,
+  and clears the warning. Then retry your original query."""
 
 
 SCANNERS = """\

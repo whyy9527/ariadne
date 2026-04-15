@@ -345,6 +345,35 @@ DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
 MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
 
 
+def run_scan_and_embed(config_path: str, db_path: str, emb_path: str, force: bool = False) -> dict:
+    """
+    Shared worker: scan + rebuild embeddings. Used by both `install` (first-time
+    setup) and the MCP `rescan` tool (in-conversation refresh). Returns a summary
+    dict {nodes, duration_ms} — no stdout assumptions, no sys.exit.
+    """
+    import time
+    t0 = time.monotonic()
+
+    scan_args = argparse.Namespace(config=config_path, db=db_path, force=force)
+    cmd_scan(scan_args)
+
+    from store.db import DB as _DB
+    from store.embedding_db import EmbeddingDB
+    from scoring.embedder import build_embeddings, _get_session
+
+    _db = _DB(db_path)
+    edb = EmbeddingDB(emb_path)
+    n_nodes = _db.node_count()
+    _get_session()
+    if edb.is_stale(n_nodes):
+        build_embeddings(_db.get_all_nodes(), edb)
+
+    return {
+        "nodes": n_nodes,
+        "duration_ms": int((time.monotonic() - t0) * 1000),
+    }
+
+
 def cmd_install(args):
     """All-in-one setup: scan repos, write <workspace>/.mcp.json, inject CLAUDE.md."""
     config_path = os.path.abspath(args.config)
@@ -366,35 +395,23 @@ def cmd_install(args):
     db_path  = os.path.join(data_dir, "ariadne.db")
     emb_path = os.path.join(data_dir, "embeddings.db")
     fb_path  = os.path.join(data_dir, "feedback.db")
+    manifest_path = os.path.join(data_dir, "manifest.json")
 
-    # 1. Scan (unless --no-scan)
-    if not args.no_scan:
-        print(f"==> Scanning via {config_path}")
-        scan_args = argparse.Namespace(config=config_path, db=db_path, force=args.force)
-        cmd_scan(scan_args)
-    else:
+    # 1. Scan + embeddings (via shared helper)
+    if args.no_scan:
         print(f"==> --no-scan; expecting DB at {db_path}")
         if not os.path.isfile(db_path):
             print(f"ERROR: --no-scan but DB missing at {db_path}", file=sys.stderr)
             sys.exit(1)
-
-    # 2. Warm embeddings.db so the first MCP query doesn't pay a cold-start tax.
-    #    Downloads the ONNX model (~34MB) on first run; subsequent runs reuse cache.
-    from store.db import DB as _DB
-    from store.embedding_db import EmbeddingDB
-    from scoring.embedder import build_embeddings, _get_session
-    _db = _DB(db_path)
-    edb = EmbeddingDB(emb_path)
-    n_nodes = _db.node_count()
-    print("==> Verifying ONNX embedding model (downloads ~34MB on first run)...")
-    _get_session()
-    print("    ONNX session ready")
-    if edb.is_stale(n_nodes):
-        print(f"==> Building embeddings for {n_nodes} nodes...")
-        build_embeddings(_db.get_all_nodes(), edb)
-        print("    embeddings ready")
     else:
-        print("==> Embeddings up to date")
+        print(f"==> Scanning via {config_path}")
+        run_scan_and_embed(config_path, db_path, emb_path, force=args.force)
+
+    # 2. Persist manifest so the MCP `rescan` tool can find the config later.
+    with open(manifest_path, "w") as f:
+        json.dump({"config_path": config_path}, f, indent=2)
+        f.write("\n")
+    print(f"==> Wrote {manifest_path}")
 
     # 3. Write .mcp.json
     mcp_json = os.path.join(workspace, ".mcp.json")

@@ -56,9 +56,10 @@ results compact enough for an AI context window.
 
 ## Example
 
-```
-$ python3 main.py query "createOrder"
+You ask Claude "where does createOrder live across the stack?" Claude calls
+`query_chains` mid-conversation and gets back:
 
+```
 Top Cluster #1  [confidence: 0.91]
   Services: gateway, orders-svc, billing-svc, web
   - [web]          Frontend Mutation: createOrder
@@ -66,14 +67,16 @@ Top Cluster #1  [confidence: 0.91]
   - [orders-svc]   HTTP POST /orders: createOrder
   - [orders-svc]   Kafka Topic:       order-created
   - [billing-svc]  Kafka Listener:    order-created → chargeCustomer
-
-$ python3 main.py expand "order-created"
-
-Source: [orders-svc] Kafka Topic: order-created
-  → [billing-svc] Kafka Listener: chargeCustomer       (score=0.71)
-  → [gateway]     GraphQL Subscription: orderUpdates    (score=0.62)
-  → [web]         Frontend Subscription: OrderUpdates   (score=0.60)
 ```
+
+Claude then summarises: *"createOrder is a GraphQL mutation in `gateway`,
+forwarded to `orders-svc` via `POST /orders`, which publishes an
+`order-created` Kafka event that `billing-svc` consumes to charge the
+customer."*
+
+~500 tokens round-trip. The equivalent `grep -r createOrder` across four
+repos would return 40+ matches across DTOs, tests, and configs at ~2000
+tokens, with the contract layer buried.
 
 ---
 
@@ -102,33 +105,73 @@ Golden path — driving Ariadne from an AI conversation:
   4. log_feedback(hint, accepted=False, ...) ONLY when a result was
      misleading. Most feedback is captured implicitly in step 2;
      log_feedback is the manual escape hatch for thumbs-down.
+
+  Staleness: if query_chains or expand_node return a non-null
+  `stale_warning` field, call rescan() once — it re-scans the repos
+  listed in the install-time config, rebuilds embeddings if needed,
+  and clears the warning. Then retry your original query.
 ```
 
 ---
 
 ## Quick start
 
+Ariadne is an [MCP](https://modelcontextprotocol.io) stdio server. You run
+`install` once, restart Claude Code, and the assistant picks up Ariadne's
+tools automatically — no Bash wrapping, no shell calls.
+
 ```bash
 # Python 3.10+
-# CLI mode: no extra deps. MCP mode: pip install mcp
 
-# 1. Describe your repos in a config file (see ariadne.config.example.json)
+# 1. Describe your repos in a config file
 cp ariadne.config.example.json ariadne.config.json
 $EDITOR ariadne.config.json
 
-# 2. Scan
+# 2. One shot: scan + build embeddings + register as MCP server
+pip install mcp onnxruntime tokenizers huggingface_hub
+python3 main.py install ariadne.config.json ~/your-workspace
+
+# 3. Restart Claude Code. Done.
+```
+
+`install` scans your repos, builds `<workspace>/.ariadne/` (DB, embeddings,
+manifest), writes `<workspace>/.mcp.json`, and injects a usage snippet into
+`<workspace>/CLAUDE.md`. It's idempotent — re-run it to rescan after pulling
+new code (or let the assistant call `rescan` from inside the conversation
+when it sees a `stale_warning`).
+
+Full signature (kept in sync with argparse via `docs_source.py`):
+
+```
+python3 main.py install [-h] [--snippet SNIPPET] [--no-scan] [--force] [--marker MARKER] config workspace
+```
+
+Flags: `--no-scan` (skip re-scan), `--force` (overwrite existing `.mcp.json`),
+`--snippet PATH`, `--marker STRING`.
+
+### Tools the assistant sees
+
+| Tool           | Args                                  | Purpose                                |
+|----------------|---------------------------------------|----------------------------------------|
+| `query_chains` | `hint`, `top_n` (default 3)           | Business term → cross-service clusters |
+| `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
+| `rescan`       | *(none)*                              | Refresh the index in place when a response has a `stale_warning`; git-hash incremental, returns `{nodes, duration_ms}` |
+| `ariadne_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
+| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see Feedback loop) |
+
+### Using as a plain CLI (optional)
+
+If your assistant can't do MCP but can run Bash, every MCP tool has a CLI
+twin with zero runtime dependencies beyond Python 3.10:
+
+```bash
 python3 main.py scan --config ariadne.config.json
-
-# 3. Query
 python3 main.py query "createOrder"
-python3 main.py query "user profile"
-
-# 4. Expand from a known node
 python3 main.py expand "order-created"
-
-# 5. Stats
 python3 main.py stats
 ```
+
+Useful for scripting and debugging; the MCP path is the recommended one.
 
 ### Config format
 
@@ -232,43 +275,6 @@ class GoRouteScanner(BaseScanner):
 
 Zero install required — no entry points, no `pyproject.toml` changes.
 Just make sure the module is importable from wherever you run `python3 main.py`.
-
----
-
-## MCP integration
-
-Ariadne ships as a [Model Context Protocol](https://modelcontextprotocol.io)
-stdio server that exposes `query_chains`, `expand_node`, `ariadne_help`, and
-`log_feedback` as first-class tools — the assistant sees them in its tool list
-automatically, no Bash wrapping.
-
-```bash
-pip install mcp onnxruntime tokenizers huggingface_hub
-python3 main.py install ariadne.config.json ~/Desktop/work
-```
-
-One command: scans repos, builds `<workspace>/.ariadne/` (DB + `embeddings.db`),
-writes `<workspace>/.mcp.json`, injects a usage snippet into `<workspace>/CLAUDE.md`.
-Restart Claude Code — Ariadne shows up as an MCP server.
-
-Full signature (kept in sync with argparse via `docs_source.py`):
-
-```
-python3 main.py install [-h] [--snippet SNIPPET] [--no-scan] [--force] [--marker MARKER] config workspace
-```
-
-Flags: `--no-scan` (skip re-scan), `--force` (overwrite existing `.mcp.json`),
-`--snippet PATH`, `--marker STRING`.
-
-| Tool           | Args                                  | Purpose                                |
-|----------------|---------------------------------------|----------------------------------------|
-| `query_chains` | `hint`, `top_n` (default 3)           | Business term → cross-service clusters |
-| `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
-| `ariadne_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
-| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see Feedback loop) |
-
-Prefer shell calls over MCP tools? Any AI that can run Bash can call
-`python3 main.py query / expand` directly — no install, no server process.
 
 ---
 
@@ -439,30 +445,13 @@ ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
 
 ## Roadmap
 
-- **Close the MCP-first loop**: expose `rescan` as an MCP tool so the
-  assistant can refresh a stale index from inside the conversation, without
-  the user dropping to a shell. Requires persisting `config_path` at install
-  time (`.ariadne/manifest.json`), closing/reopening the server's cached DB
-  handle after scan, and returning a summary with `stale_warning: null`.
-  Collapses Quick start from 5 steps to 2.
 - More Kafka sources (already covers `application.yaml` + `@KafkaListener` +
   `KafkaTemplate.send`)
-- Wider TS scan (currently limited to files matching `service|api|hook|client|request`
-  or `index.ts`)
 - TF-IDF weight tuning for very high-frequency domain tokens
 - Stronger feedback signal: decay tuning, per-service weighting, cross-hint
   generalisation (current boost is count-based within the same hint)
-- Pluggable scanners: register new language/framework scanners (Go, Rust,
-  Python services, etc.) via an entry-point or plugin interface, instead of
-  hand-editing the core `scanner/` package
-- Watch mode: `ariadne scan --watch` hooks into git post-commit / file events
-  to incrementally re-scan only changed files, keeping the DB warm without a
-  manual rebuild
-- Sharper README top: a 20-second hook that names the problem, the input,
-  and the output before anything else
-- Golden-path example in README: one end-to-end walkthrough
-  (`query_chains` → `expand_node` → read code → `log_feedback`) instead of a
-  flat tool list
+- Watch mode: hook into git post-commit / file events to auto-trigger
+  `rescan` instead of waiting for a stale_warning
 - `expand_node` product polish: clearer trigger conditions, smaller input
   surface, output that points at the next step
 - Parameter pass across all tools: task-oriented names over implementation
