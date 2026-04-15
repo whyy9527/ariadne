@@ -1,19 +1,48 @@
 """
-Scans frontend *Service.ts files for REST calls via axios.
+Scans frontend TS/TSX files for REST calls via axios or fetch.
 Detects: this.axiosRequest.get/post/put/delete/patch('path', ...)
 Also detects direct fetch() calls.
 
 Each call becomes a node of type "frontend_rest". Target service is inferred
 from the TypeScript base class via a caller-supplied `base_class_service` map
 (set per-repo in ariadne.config.json). Unmatched files default to "unknown".
+
+File filter: all .ts/.tsx files are scanned except noise directories/patterns:
+  - node_modules, __mocks__, __tests__, .next, dist, build, coverage (path segments)
+  - *.test.ts, *.test.tsx, *.spec.ts, *.spec.tsx
+  - *.d.ts (type declarations)
+  - *.stories.ts, *.stories.tsx (Storybook)
 """
 import re
 from pathlib import Path
 from scanner import BaseScanner
 
+# Path segments (anywhere in the path) to exclude entirely
+_NOISE_PATH_SEGMENTS = frozenset({
+    "node_modules", "__mocks__", "__tests__",
+    ".next", "dist", "build", "coverage",
+})
+
+# Stem suffixes that indicate noise files (.test.ts, .d.ts, etc.)
+_NOISE_STEM_SUFFIXES = (
+    ".test", ".spec", ".d", ".stories",
+)
+
+
+def _is_noise(f: Path) -> bool:
+    parts = set(f.parts)
+    if parts & _NOISE_PATH_SEGMENTS:
+        return True
+    # e.g. "Button.stories" or "api.d" or "foo.test"
+    stem = f.stem
+    for suffix in _NOISE_STEM_SUFFIXES:
+        if stem.endswith(suffix):
+            return True
+    return False
+
 
 class FrontendRESTScanner(BaseScanner):
-    """Scan frontend *Service.ts files for REST calls via axios/fetch."""
+    """Scan frontend TS/TSX files for REST calls via axios/fetch."""
 
     def __init__(self, base_class_service: dict | None = None):
         self.base_class_service = base_class_service
@@ -31,12 +60,11 @@ def scan_frontend_rest(
     nodes = []
     repo = Path(repo_path)
 
-    all_ts = [f for f in repo.rglob("*.ts") if "node_modules" not in str(f)]
     ts_files = [
-        f for f in all_ts
-        if any(kw in f.stem.lower() or kw in str(f.parent).lower()
-               for kw in ("service", "api", "hook", "client", "request"))
-        or f.stem == "index"
+        f
+        for ext in ("*.ts", "*.tsx")
+        for f in repo.rglob(ext)
+        if not _is_noise(f)
     ]
 
     for fpath in ts_files:

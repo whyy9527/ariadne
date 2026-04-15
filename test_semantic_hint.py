@@ -625,6 +625,89 @@ def test_mcp_stale_warning_in_payload():
 
 
 # ──────────────────────────────────────────────
+# 8. Frontend REST scanner — file filter
+# ──────────────────────────────────────────────
+
+def _make_frontend_rest_repo(tmp_dir: str, files: "list[tuple[str, str]]") -> str:
+    """Write files into tmp_dir and return the dir path."""
+    import os
+    for rel_path, content in files:
+        full = os.path.join(tmp_dir, rel_path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(content)
+    return tmp_dir
+
+
+def test_frontend_rest_tsx_component_scanned():
+    """Dashboard.tsx with an axiosRequest.get call IS scanned and produces a node."""
+    import tempfile
+    from scanner.frontend_rest_scanner import scan_frontend_rest
+
+    axios_call = (
+        "class DashboardService {\n"
+        "  async fetchData() {\n"
+        "    return this.axiosRequest.get('/foo');\n"
+        "  }\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/pages/Dashboard.tsx", axios_call)])
+        nodes = scan_frontend_rest(tmp, "frontend")
+    assert len(nodes) >= 1, f"Expected >=1 node from Dashboard.tsx, got {nodes}"
+    paths = [n["path"] for n in nodes]
+    assert "/foo" in paths, f"/foo not found in paths: {paths}"
+
+
+def test_frontend_rest_test_file_skipped():
+    """userService.test.ts with an axios call is SKIPPED."""
+    import tempfile
+    from scanner.frontend_rest_scanner import scan_frontend_rest
+
+    axios_call = (
+        "class X {\n"
+        "  async run() {\n"
+        "    return this.axiosRequest.get('/bar');\n"
+        "  }\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/api/userService.test.ts", axios_call)])
+        nodes = scan_frontend_rest(tmp, "frontend")
+    assert nodes == [], f"Expected no nodes from .test.ts, got {nodes}"
+
+
+def test_frontend_rest_dts_file_skipped():
+    """api.d.ts is SKIPPED (type declaration)."""
+    import tempfile
+    from scanner.frontend_rest_scanner import scan_frontend_rest
+
+    dts_content = "export declare function getUser(): Promise<void>;\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/types/api.d.ts", dts_content)])
+        nodes = scan_frontend_rest(tmp, "frontend")
+    assert nodes == [], f"Expected no nodes from .d.ts, got {nodes}"
+
+
+def test_frontend_rest_stories_file_skipped():
+    """Button.stories.tsx is SKIPPED (Storybook)."""
+    import tempfile
+    from scanner.frontend_rest_scanner import scan_frontend_rest
+
+    stories_content = (
+        "class StoryHelper {\n"
+        "  async load() {\n"
+        "    return this.axiosRequest.get('/story-api');\n"
+        "  }\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/components/Button.stories.tsx", stories_content)])
+        nodes = scan_frontend_rest(tmp, "frontend")
+    assert nodes == [], f"Expected no nodes from .stories.tsx, got {nodes}"
+
+
+# ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
 
@@ -661,6 +744,10 @@ if __name__ == "__main__":
         test_cli_stale_warning_emitted,
         test_cli_no_warning_when_fresh,
         test_mcp_stale_warning_in_payload,
+        test_frontend_rest_tsx_component_scanned,
+        test_frontend_rest_test_file_skipped,
+        test_frontend_rest_dts_file_skipped,
+        test_frontend_rest_stories_file_skipped,
     ]
 
     passed = failed = 0

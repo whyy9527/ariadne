@@ -160,7 +160,7 @@ scanners — either by name (string) or as an object with extra options.
 | `kafka`            | Spring `application.yaml` topics + `@KafkaListener` + producers    |
 | `backend_clients`  | Spring `RestClient` / `RestTemplate` outbound calls in `*Client.*` |
 | `frontend_graphql` | TypeScript `gql\`\`` literals → frontend Query/Mutation            |
-| `frontend_rest`    | `axiosRequest.<verb>(...)` and `fetch(...)` calls in TS files      |
+| `frontend_rest`    | `axios`/`fetch` calls in TS/TSX files, excluding tests/mocks/types |
 | `cube`             | cube.js `cube(...)` definitions                                    |
 
 ### Custom scanners
