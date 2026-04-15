@@ -26,6 +26,8 @@ import json
 import os
 import sys
 import argparse
+import time
+from collections import deque
 
 # Resolve DB path before changing directory
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -72,6 +74,12 @@ app = Server("ariadne")
 _db = None
 _fdb = None
 _edb = None
+
+# ── Implicit feedback: pending query cache ─────────────────────────────────────
+# Each entry: {"hint": str, "ts": float, "clusters": [{"rank": int, "node_names": set}]}
+_PENDING_TTL = 600          # 10 min — queries older than this are silently dropped
+_PENDING_MAX = 20           # max entries; oldest evicted when cap reached
+_PendingQueries: deque = deque(maxlen=_PENDING_MAX)
 
 
 def _get_db(db_path: str):
@@ -281,6 +289,25 @@ MORE INFO
 """
 
 
+def _extract_cluster_node_names(results: list[dict]) -> list[dict]:
+    """
+    Convert query() result list into a compact structure for pending cache.
+    Returns [{"rank": 1, "node_names": {name, ...}}, ...]
+    Each cluster captures both the node "name" (raw_name) and "id" fields so
+    expand_node partial-name matching works correctly.
+    """
+    clusters = []
+    for i, cluster in enumerate(results, 1):
+        names = set()
+        for node in cluster.get("nodes", []):
+            if node.get("name"):
+                names.add(node["name"].lower())
+            if node.get("id"):
+                names.add(node["id"].lower())
+        clusters.append({"rank": i, "node_names": names})
+    return clusters
+
+
 async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
     from query.query import query
 
@@ -291,6 +318,15 @@ async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
 
     if not results:
         return [TextContent(type="text", text=f"No chains found for: {hint}")]
+
+    # Cache this query for potential implicit feedback from a follow-up expand_node
+    clusters = _extract_cluster_node_names(results)
+    if clusters:
+        _PendingQueries.append({
+            "hint": hint,
+            "ts": time.time(),
+            "clusters": clusters,
+        })
 
     return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
 
@@ -303,6 +339,39 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
 
     if not results:
         return [TextContent(type="text", text=f"No node found matching: {name}")]
+
+    # Implicit feedback: if this expand_node name matches a node from a recent
+    # query_chains result, treat it as positive feedback for that cluster.
+    name_lower = name.lower()
+    now = time.time()
+    matched_hints = []
+    for entry in list(_PendingQueries):
+        if now - entry["ts"] > _PENDING_TTL:
+            continue  # silently skip expired entries (no negative feedback)
+        for cluster in entry["clusters"]:
+            # Substring match mirrors expand()'s own partial name logic
+            if any(name_lower in n or n in name_lower for n in cluster["node_names"]):
+                matched_hints.append((entry, cluster["rank"]))
+                break  # one cluster match per pending query is enough
+
+    if matched_hints:
+        fdb = _get_fdb(_FB_PATH)
+        for entry, rank in matched_hints:
+            try:
+                fdb.log(
+                    hint=entry["hint"],
+                    cluster_rank=rank,
+                    node_ids=[],
+                    accepted=True,
+                    source="implicit_expand",
+                )
+            except Exception as e:
+                print(f"[ariadne] implicit feedback write failed: {e}", file=sys.stderr)
+            # Remove from pending to avoid double-counting
+            try:
+                _PendingQueries.remove(entry)
+            except ValueError:
+                pass  # already removed (race within same process is impossible in asyncio, but be safe)
 
     return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
 
