@@ -2,11 +2,18 @@
 Query layer: given a business term or endpoint/topic name,
 return top candidate cross-service chains.
 """
+import os
+import sys
+
 from normalizer.normalizer import split_tokens
 from scoring.engine import build_clusters, find_anchors
 
+# Boost weight applied to clusters with historical positive feedback.
+# Tuned empirically at α=0.15 — revisit after accumulating real usage data.
+_BOOST_ALPHA = 0.15
 
-def query(db, hint: str, top_n: int = 5, edb=None) -> list[dict]:
+
+def query(db, hint: str, top_n: int = 5, edb=None, fdb=None) -> list[dict]:
     """
     Input: business word OR endpoint/topic name.
     Output: list of cluster dicts with enriched node info.
@@ -47,6 +54,35 @@ def query(db, hint: str, top_n: int = 5, edb=None) -> list[dict]:
         from scoring.embedder import rerank_clusters
         rerank_clusters(hint, clusters, node_map, edb)
         clusters = clusters[:top_n]
+
+    # Feedback boost rerank: lift clusters whose node_ids were historically accepted.
+    # Controlled by ARIADNE_FEEDBACK_BOOST env var (default: enabled).
+    boost_enabled = os.environ.get("ARIADNE_FEEDBACK_BOOST", "1") != "0"
+    if boost_enabled and fdb is not None and clusters:
+        try:
+            accepted_map = fdb.get_accepted_node_ids(hint)
+            if accepted_map:
+                reranked = False
+                for c in clusters:
+                    boost = sum(
+                        accepted_map.get(nid, 0) for nid in c.get("node_ids", [])
+                    )
+                    if boost:
+                        c["confidence"] = round(c["confidence"] + _BOOST_ALPHA * boost, 6)
+                        reranked = True
+                if reranked:
+                    clusters.sort(key=lambda c: c["confidence"], reverse=True)
+                    n_reranked = sum(
+                        1 for c in clusters
+                        if any(accepted_map.get(nid, 0) for nid in c.get("node_ids", []))
+                    )
+                    print(
+                        f"[ariadne] boost applied: hint={hint!r} clusters_reranked={n_reranked}",
+                        file=sys.stderr,
+                    )
+        except Exception as _boost_err:
+            print(f"[ariadne] boost error (non-fatal): {_boost_err}", file=sys.stderr)
+
     enriched = []
     for c in clusters:
         nodes_info = []

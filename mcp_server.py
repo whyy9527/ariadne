@@ -313,8 +313,9 @@ async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
 
     hint = arguments["hint"]
     top_n = int(arguments.get("top_n", 3))
+    fdb = _get_fdb(_FB_PATH)
 
-    results = query(db, hint, top_n=top_n, edb=edb)
+    results = query(db, hint, top_n=top_n, edb=edb, fdb=fdb)
 
     if not results:
         return [TextContent(type="text", text=f"No chains found for: {hint}")]

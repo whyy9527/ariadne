@@ -49,6 +49,29 @@ class FeedbackDB:
         )
         self.conn.commit()
 
+    def get_accepted_node_ids(self, hint: str, max_age_days: int = 90) -> dict[str, int]:
+        """
+        Return {node_id: count} for all accepted feedback rows matching this hint.
+        Only considers rows newer than max_age_days.
+        node_ids column is a JSON array — we expand it in Python.
+        """
+        cutoff_ts = int(time.time()) - max_age_days * 86400
+        rows = self.conn.execute(
+            "SELECT node_ids FROM feedback "
+            "WHERE hint = ? AND accepted = 1 AND ts >= ?",
+            (hint, cutoff_ts),
+        ).fetchall()
+        counts: dict[str, int] = {}
+        for row in rows:
+            try:
+                ids = json.loads(row[0])
+            except (ValueError, TypeError):
+                continue
+            for nid in ids:
+                if nid:
+                    counts[nid] = counts.get(nid, 0) + 1
+        return counts
+
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
 
