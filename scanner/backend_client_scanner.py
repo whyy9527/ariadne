@@ -11,6 +11,17 @@ from the client class name using a caller-supplied substring → service map
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class BackendClientScanner(BaseScanner):
+    """Scan backend *Client.java files for outbound HTTP calls."""
+
+    def __init__(self, client_target_map: dict | None = None):
+        self.client_target_map = client_target_map
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_backend_clients(repo_path, service, self.client_target_map)
 
 
 def scan_backend_clients(

@@ -6,6 +6,14 @@ Extracts:
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class GraphQLScanner(BaseScanner):
+    """Scan .gql / .graphql schema files."""
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_graphql_files(repo_path, service)
 
 
 def scan_graphql_files(repo_path: str, service: str) -> list[dict]:

@@ -7,11 +7,20 @@ Scans Kafka topics from:
 import re
 from pathlib import Path
 
+from scanner import BaseScanner
+
 try:
     import yaml
     HAS_YAML = True
 except ImportError:
     HAS_YAML = False
+
+
+class KafkaScanner(BaseScanner):
+    """Scan Kafka topics from YAML config and Java/Kotlin source."""
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_kafka(repo_path, service)
 
 
 def scan_kafka(repo_path: str, service: str) -> list[dict]:

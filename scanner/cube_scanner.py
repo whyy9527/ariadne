@@ -7,6 +7,14 @@ Produces one node per cube, with measures + dimensions as fields.
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class CubeScanner(BaseScanner):
+    """Scan cube.js model files for cube() definitions."""
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_cubes(repo_path, service)
 
 
 CUBE_RE = re.compile(

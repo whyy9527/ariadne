@@ -4,6 +4,14 @@ Detects @RestController + @{Get,Post,Put,Delete,Patch}Mapping annotations.
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class HTTPScanner(BaseScanner):
+    """Scan Java/Kotlin Controller files for REST endpoints."""
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_http_controllers(repo_path, service)
 
 
 METHOD_ANNOTATIONS = {

@@ -1,6 +1,10 @@
 """
 scanner package — built-in scanner modules + BaseScanner interface.
 
+All built-in scanners (graphql, http, kafka, frontend_graphql, frontend_rest,
+backend_clients, cube) subclass ``BaseScanner``.  ``SCANNER_REGISTRY`` in
+``main.py`` maps short names to those classes.
+
 Custom scanners
 ---------------
 Implement ``BaseScanner`` and reference the class by dotted path in
@@ -18,9 +22,8 @@ from abc import ABC, abstractmethod
 class BaseScanner(ABC):
     """Minimal interface every scanner must satisfy.
 
-    Built-in scanners are plain functions and are **not** required to subclass
-    ``BaseScanner`` (they pre-date the ABC).  Third-party / custom scanners
-    declared via dotted path in config **must** subclass ``BaseScanner``.
+    All built-in scanners and third-party / custom scanners declared via
+    dotted path in config **must** subclass ``BaseScanner``.
 
     Node dict format (required keys)
     ---------------------------------

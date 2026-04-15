@@ -4,6 +4,14 @@ Extracts operation name + top-level selection fields.
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class FrontendGraphQLScanner(BaseScanner):
+    """Scan frontend TS/TSX files for GraphQL gql`` operations."""
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_frontend(repo_path, service)
 
 
 def scan_frontend(repo_path: str, service: str) -> list[dict]:

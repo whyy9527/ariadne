@@ -323,11 +323,11 @@ def test_basescanner_subclass():
 
 
 def test_resolve_scanner_builtin():
-    """Built-in scanner names resolve to callable functions."""
+    """Built-in scanner names resolve to a bound scan method (class-based)."""
     from main import _resolve_scanner
     fn, is_class = _resolve_scanner("graphql", {})
     assert callable(fn)
-    assert is_class is False
+    assert is_class is True
 
 
 def test_resolve_scanner_unknown():

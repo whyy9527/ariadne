@@ -9,6 +9,17 @@ from the TypeScript base class via a caller-supplied `base_class_service` map
 """
 import re
 from pathlib import Path
+from scanner import BaseScanner
+
+
+class FrontendRESTScanner(BaseScanner):
+    """Scan frontend *Service.ts files for REST calls via axios/fetch."""
+
+    def __init__(self, base_class_service: dict | None = None):
+        self.base_class_service = base_class_service
+
+    def scan(self, repo_path: str, service: str) -> list[dict]:
+        return scan_frontend_rest(repo_path, service, self.base_class_service)
 
 
 def scan_frontend_rest(

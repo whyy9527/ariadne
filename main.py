@@ -24,42 +24,62 @@ DEFAULT_EMB = os.path.join(os.path.dirname(__file__), "embeddings.db")
 DEFAULT_CONFIG = "ariadne.config.json"
 
 
-SCANNER_REGISTRY = {
-    "graphql": "scanner.graphql_scanner:scan_graphql_files",
-    "http": "scanner.http_scanner:scan_http_controllers",
-    "kafka": "scanner.kafka_scanner:scan_kafka",
-    "frontend_graphql": "scanner.frontend_scanner:scan_frontend",
-    "frontend_rest": "scanner.frontend_rest_scanner:scan_frontend_rest",
-    "backend_clients": "scanner.backend_client_scanner:scan_backend_clients",
-    "cube": "scanner.cube_scanner:scan_cubes",
-}
+def _get_scanner_registry():
+    """Return the built-in scanner registry (name → class).
+
+    Imported lazily so scanner modules are only loaded when needed.
+    """
+    from scanner.graphql_scanner import GraphQLScanner
+    from scanner.http_scanner import HTTPScanner
+    from scanner.kafka_scanner import KafkaScanner
+    from scanner.frontend_scanner import FrontendGraphQLScanner
+    from scanner.frontend_rest_scanner import FrontendRESTScanner
+    from scanner.backend_client_scanner import BackendClientScanner
+    from scanner.cube_scanner import CubeScanner
+    return {
+        "graphql": GraphQLScanner,
+        "http": HTTPScanner,
+        "kafka": KafkaScanner,
+        "frontend_graphql": FrontendGraphQLScanner,
+        "frontend_rest": FrontendRESTScanner,
+        "backend_clients": BackendClientScanner,
+        "cube": CubeScanner,
+    }
 
 
-def _load_callable(spec: str):
-    """Load a function from a 'module:func_name' spec (used for built-in scanners)."""
-    mod_name, func_name = spec.split(":", 1)
-    mod = __import__(mod_name, fromlist=[func_name])
-    return getattr(mod, func_name)
+# Module-level registry (populated on first access via helper above).
+# Kept as a module attribute so existing code that does
+# ``from main import SCANNER_REGISTRY`` or ``SCANNER_REGISTRY.get(...)``
+# continues to work — but we populate it lazily the first time it is needed
+# to avoid import-time side effects during tests.
+SCANNER_REGISTRY: dict = {}
 
 
 def _resolve_scanner(sc_name: str, sc_opts: dict):
-    """Return a callable ``fn(repo_path, service) -> list[dict]``.
+    """Return ``(bound_scan_method, is_class_based)`` where *is_class_based* is
+    always ``True`` — every scanner is now a ``BaseScanner`` subclass.
 
     Resolution order:
-    1. Built-in name (e.g. ``"graphql"``) → look up SCANNER_REGISTRY, load function.
-    2. Dotted-path class reference (``"module.path:ClassName"``) not in the built-in
-       registry → dynamic-import the class via importlib, instantiate with *sc_opts*
-       as kwargs, return a bound ``scan`` method.
+    1. Built-in name (e.g. ``"graphql"``) → look up SCANNER_REGISTRY (class),
+       instantiate with *sc_opts* as kwargs, return bound ``scan`` method.
+    2. Dotted-path class reference (``"module.path:ClassName"``) not in the
+       built-in registry → dynamic-import the class via importlib, instantiate
+       with *sc_opts* as kwargs, return bound ``scan`` method.
 
     Raises ``ValueError`` for unknown names / malformed specs.
     """
     import importlib
 
+    # Ensure SCANNER_REGISTRY is populated.
+    global SCANNER_REGISTRY
+    if not SCANNER_REGISTRY:
+        SCANNER_REGISTRY.update(_get_scanner_registry())
+
     # --- 1. Built-in name ---
-    spec = SCANNER_REGISTRY.get(sc_name)
-    if spec is not None:
-        # Returns (callable, is_class_based=False) — caller passes sc_opts as kwargs
-        return _load_callable(spec), False
+    cls = SCANNER_REGISTRY.get(sc_name)
+    if cls is not None:
+        instance = cls(**sc_opts)
+        return instance.scan, True
 
     # --- 2. Dotted-path class reference ---
     if ":" in sc_name:
@@ -76,7 +96,6 @@ def _resolve_scanner(sc_name: str, sc_opts: dict):
                 f"Module '{mod_name}' has no attribute '{cls_name}'"
             )
         instance = cls(**sc_opts)
-        # Returns (bound scan method, is_class_based=True) — opts consumed in __init__
         return instance.scan, True
 
     raise ValueError(
@@ -194,17 +213,13 @@ def cmd_scan(args):
                 sc_name = sc.get("type")
                 sc_opts = {k: v for k, v in sc.items() if k != "type"}
             try:
-                fn, is_class_based = _resolve_scanner(sc_name, sc_opts)
+                fn, _ = _resolve_scanner(sc_name, sc_opts)
             except ValueError as exc:
                 print(f"  {name}: WARN {exc}", file=sys.stderr)
                 continue
-            # Built-in (function) scanners: forward sc_opts as kwargs.
-            # Class-based custom scanners: opts already consumed by __init__,
-            # so call scan(repo_path, service) with no extra kwargs.
-            if is_class_based:
-                nodes = fn(path, name)
-            else:
-                nodes = fn(path, name, **sc_opts) if sc_opts else fn(path, name)
+            # All scanners are now class-based: opts consumed by __init__,
+            # scan(repo_path, service) takes no extra kwargs.
+            nodes = fn(path, name)
             repo_new_nodes.extend(nodes)
             counts.append(f"{sc_name}={len(nodes)}")
 
@@ -421,6 +436,10 @@ To rebuild the DB:
 
 def cmd_config_validate(args):
     """Static sanity check on ariadne.config.json."""
+    global SCANNER_REGISTRY
+    if not SCANNER_REGISTRY:
+        SCANNER_REGISTRY.update(_get_scanner_registry())
+
     cfg_path = os.path.abspath(args.config)
     cfg = _load_config(cfg_path)
     cfg_dir = os.path.dirname(cfg_path)
