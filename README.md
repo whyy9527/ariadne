@@ -203,7 +203,7 @@ so the assistant sees them in its tool list automatically.
 **One-shot setup:**
 
 ```bash
-pip install mcp sentence-transformers
+pip install mcp onnxruntime tokenizers huggingface_hub
 python3 main.py install --config ariadne.config.json
 ```
 
@@ -375,8 +375,8 @@ clusters in Ariadne, at ~¼ the token count.
 **Q: Can I use this without an AI assistant — just as a CLI tool?**
 
 Yes. The CLI (`python3 main.py query / expand / stats`) has zero dependencies
-beyond Python 3.10. The `mcp` and `sentence-transformers` packages are only
-needed for MCP mode and semantic (embedding) recall.
+beyond Python 3.10. The `mcp`, `onnxruntime`, `tokenizers`, and `huggingface_hub`
+packages are only needed for MCP mode and semantic (embedding) recall.
 
 ---
 
@@ -449,8 +449,8 @@ Two-stage, `O(anchors × neighbours)`, independent of repo count.
 
 ### Embeddings
 
-TF-IDF is the primary recall channel. `bge-small-en-v1.5` is used for two
-narrow jobs:
+TF-IDF is the primary recall channel. `bge-small-en-v1.5` (ONNX int8 quantized)
+is used for two narrow jobs:
 
 - **Recall fallback**: when token overlap is weak, find synonyms (e.g.
   `assignHomework` ↔ `assignStudentsToTask`) and add them to the anchor set.
@@ -458,8 +458,9 @@ narrow jobs:
   `0.6 · confidence + 0.4 · max_cos(hint, cluster_nodes)` and truncate to
   `top_n`.
 
-The model is ~130 MB and runs on CPU. Vectors are cached in `embeddings.db`;
-only the query hint is embedded at query time.
+The ONNX model is ~34 MB (int8 quantized) and runs on CPU via `onnxruntime`.
+Cold start is ~0.3s (vs ~13s with the previous PyTorch-based implementation).
+Vectors are cached in `embeddings.db`; only the query hint is embedded at query time.
 
 ---
 

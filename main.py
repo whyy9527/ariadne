@@ -286,16 +286,21 @@ def cmd_install(args):
             print(f"ERROR: --no-scan but DB missing at {db_path}", file=sys.stderr)
             sys.exit(1)
 
-    # 2. Warm embeddings.db so the first MCP query doesn't pay a cold-start tax
+    # 2. Warm embeddings.db so the first MCP query doesn't pay a cold-start tax.
+    #    Downloads the ONNX model (~34MB) on first run; subsequent runs reuse cache.
     if not args.no_embed:
         from store.db import DB as _DB
         from store.embedding_db import EmbeddingDB
-        from scoring.embedder import build_embeddings
+        from scoring.embedder import build_embeddings, _get_session
         _db = _DB(db_path)
         edb = EmbeddingDB(emb_path)
         n_nodes = _db.node_count()
+        # Ensure model is downloaded and session loads before embedding
+        print("==> Verifying ONNX embedding model (downloads ~34MB on first run)...")
+        _get_session()
+        print("    ONNX session ready")
         if edb.is_stale(n_nodes):
-            print(f"==> Building embeddings for {n_nodes} nodes (first run ~30s)")
+            print(f"==> Building embeddings for {n_nodes} nodes...")
             build_embeddings(_db.get_all_nodes(), edb)
             print("    embeddings ready")
         else:
