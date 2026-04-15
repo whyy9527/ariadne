@@ -5,6 +5,7 @@
 [![MCP](https://img.shields.io/badge/MCP-stdio-8A2BE2)](https://modelcontextprotocol.io)
 [![Status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/whyy9527/ariadne)
 [![ariadne MCP server](https://glama.ai/mcp/servers/whyy9527/ariadne/badges/score.svg)](https://glama.ai/mcp/servers/whyy9527/ariadne)
+[![Awesome MCP Servers](https://img.shields.io/badge/Awesome-MCP%20Servers-FC60A8?logo=awesomelists)](https://github.com/punkpeye/awesome-mcp-servers#-developer-tools)
 
 > Ariadne's thread — a way out of the microservice maze.
 
