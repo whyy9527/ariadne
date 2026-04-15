@@ -3,7 +3,11 @@ SQLite store for nodes, edges, clusters.
 """
 import sqlite3
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+
+# Number of days before a scan is considered stale.
+STALE_SCAN_DAYS = 7
 
 
 SCHEMA = """
@@ -137,6 +141,38 @@ class DB:
                VALUES (?,?,?)""",
             (name, git_hash, scanned_at),
         )
+
+    def get_oldest_scanned_at(self) -> "datetime | None":
+        """Return the oldest scanned_at timestamp across all repos, or None if empty.
+
+        Unparseable timestamps are treated as stale (epoch) and a debug note is
+        printed to stderr.
+        """
+        rows = self.conn.execute(
+            "SELECT scanned_at FROM repo_state WHERE scanned_at IS NOT NULL"
+        ).fetchall()
+        if not rows:
+            return None
+
+        import sys
+        oldest: datetime | None = None
+        for row in rows:
+            raw = row[0]
+            try:
+                dt = datetime.fromisoformat(raw)
+                # Normalise to aware UTC so comparisons are apples-to-apples.
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError) as exc:
+                print(
+                    f"[ariadne] WARNING: unparseable scanned_at {raw!r} ({exc}); "
+                    "treating as stale (epoch).",
+                    file=sys.stderr,
+                )
+                dt = datetime(1970, 1, 1, tzinfo=timezone.utc)
+            if oldest is None or dt < oldest:
+                oldest = dt
+        return oldest
 
     def get_node(self, node_id: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()

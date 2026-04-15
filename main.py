@@ -23,6 +23,30 @@ DEFAULT_DB = os.path.join(os.path.dirname(__file__), "ariadne.db")
 DEFAULT_EMB = os.path.join(os.path.dirname(__file__), "embeddings.db")
 DEFAULT_CONFIG = "ariadne.config.json"
 
+STALE_SCAN_DAYS = 7  # must match store/db.STALE_SCAN_DAYS
+
+
+def _stale_warning(db, args=None) -> None:
+    """Print a warning to stderr if the oldest scan is older than STALE_SCAN_DAYS."""
+    from store.db import STALE_SCAN_DAYS as _THRESHOLD
+    oldest = db.get_oldest_scanned_at()
+    if oldest is None:
+        return
+    now = datetime.now(timezone.utc)
+    age_days = (now - oldest).days
+    if age_days >= _THRESHOLD:
+        config_hint = ""
+        if args is not None and hasattr(args, "config"):
+            config_hint = f" --config {args.config}"
+        use_color = sys.stderr.isatty()
+        prefix = "\033[33m" if use_color else ""
+        suffix = "\033[0m" if use_color else ""
+        print(
+            f"{prefix}⚠ Oldest scan: {age_days} days ago. "
+            f"Re-scan: python3 main.py scan{config_hint}{suffix}",
+            file=sys.stderr,
+        )
+
 
 def _get_scanner_registry():
     """Return the built-in scanner registry (name → class).
@@ -287,6 +311,7 @@ def cmd_query(args):
     from query.query import query, print_results
 
     db = DB(args.db)
+    _stale_warning(db, args)
     edb = EmbeddingDB(args.emb)
     node_count = db.node_count()
     if edb.is_stale(node_count):
@@ -308,6 +333,7 @@ def cmd_expand(args):
     from query.query import expand, print_expand
 
     db = DB(args.db)
+    _stale_warning(db, args)
     name = " ".join(args.name)
     print(f"\nExpand: {name}\n" + "=" * 50)
     results = expand(db, name)
@@ -555,6 +581,7 @@ def cmd_stats(args):
     from collections import Counter
 
     db = DB(args.db)
+    _stale_warning(db, args)
     nodes = db.get_all_nodes()
     type_counts = Counter(n["type"] for n in nodes)
     svc_counts = Counter(n["service"] for n in nodes)

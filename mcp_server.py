@@ -28,6 +28,7 @@ import sys
 import argparse
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 # Resolve DB path before changing directory
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +45,24 @@ from mcp.types import Tool, TextContent
 # ── DB bootstrap ───────────────────────────────────────────────────────────────
 
 _STALE_DAYS = 7
+
+
+def _build_stale_warning(db) -> "str | None":
+    """Return a stale-scan warning string if the oldest scan is older than _STALE_DAYS, else None."""
+    try:
+        oldest = db.get_oldest_scanned_at()
+    except Exception:
+        return None
+    if oldest is None:
+        return None
+    now = datetime.now(timezone.utc)
+    age_days = (now - oldest).days
+    if age_days >= _STALE_DAYS:
+        return (
+            f"⚠ Oldest scan: {age_days} days ago. "
+            "Re-scan: python3 main.py scan --config <path>"
+        )
+    return None
 
 
 def _ensure_db(db_path: str):
@@ -317,8 +336,11 @@ async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
 
     results = query(db, hint, top_n=top_n, edb=edb, fdb=fdb)
 
+    stale_warning = _build_stale_warning(db)
+
     if not results:
-        return [TextContent(type="text", text=f"No chains found for: {hint}")]
+        payload = {"chains": [], "stale_warning": stale_warning}
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
     # Cache this query for potential implicit feedback from a follow-up expand_node
     clusters = _extract_cluster_node_names(results)
@@ -329,7 +351,8 @@ async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
             "clusters": clusters,
         })
 
-    return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
+    payload = {"chains": results, "stale_warning": stale_warning}
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
 
 async def _expand_node(db, arguments: dict) -> list[TextContent]:
@@ -338,8 +361,11 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
     name = arguments["name"]
     results = expand(db, name)
 
+    stale_warning = _build_stale_warning(db)
+
     if not results:
-        return [TextContent(type="text", text=f"No node found matching: {name}")]
+        payload = {"neighbors": [], "stale_warning": stale_warning}
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
     # Implicit feedback: if this expand_node name matches a node from a recent
     # query_chains result, treat it as positive feedback for that cluster.
@@ -374,7 +400,8 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
             except ValueError:
                 pass  # already removed (race within same process is impossible in asyncio, but be safe)
 
-    return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False))]
+    payload = {"neighbors": results, "stale_warning": stale_warning}
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
 
 async def _log_feedback(fdb, arguments: dict) -> list[TextContent]:

@@ -454,6 +454,177 @@ def test_pluggable_scanner_end_to_end():
 
 
 # ──────────────────────────────────────────────
+# 7. Stale-scan warning
+# ──────────────────────────────────────────────
+
+def _make_db_with_scanned_at(scanned_at_iso: str) -> "tuple[DB, str]":
+    """Helper: create a temp DB with one repo_state row at the given ISO timestamp."""
+    import tempfile
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db = DB(f.name)
+    db.upsert_repo_state("test-repo", "abc123", scanned_at_iso)
+    db.commit()
+    return db, f.name
+
+
+def test_get_oldest_scanned_at_empty():
+    """Empty DB returns None."""
+    import tempfile
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    try:
+        db = DB(f.name)
+        assert db.get_oldest_scanned_at() is None
+        db.close()
+    finally:
+        os.unlink(f.name)
+
+
+def test_get_oldest_scanned_at_single():
+    """Single row returns that timestamp as an aware datetime."""
+    from datetime import datetime, timezone
+    ts = "2020-06-01T12:00:00+00:00"
+    db, path = _make_db_with_scanned_at(ts)
+    try:
+        result = db.get_oldest_scanned_at()
+        assert result is not None
+        assert result.tzinfo is not None, "Should be timezone-aware"
+        assert result == datetime(2020, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        db.close()
+    finally:
+        os.unlink(path)
+
+
+def test_get_oldest_scanned_at_multiple():
+    """Multiple rows returns the minimum."""
+    from datetime import datetime, timezone
+    import tempfile
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db = DB(f.name)
+    try:
+        db.upsert_repo_state("repo-a", None, "2024-01-01T00:00:00+00:00")
+        db.upsert_repo_state("repo-b", None, "2023-06-15T00:00:00+00:00")  # older
+        db.upsert_repo_state("repo-c", None, "2024-05-01T00:00:00+00:00")
+        db.commit()
+        result = db.get_oldest_scanned_at()
+        assert result == datetime(2023, 6, 15, tzinfo=timezone.utc)
+        db.close()
+    finally:
+        os.unlink(f.name)
+
+
+def test_get_oldest_scanned_at_unparseable(capsys=None):
+    """Unparseable timestamp is treated as epoch (stale), no exception raised."""
+    from datetime import datetime, timezone
+    import tempfile, io, contextlib
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db = DB(f.name)
+    try:
+        db.upsert_repo_state("bad-repo", None, "not-a-date")
+        db.commit()
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            result = db.get_oldest_scanned_at()
+        assert result == datetime(1970, 1, 1, tzinfo=timezone.utc)
+        assert "unparseable" in buf.getvalue()
+        db.close()
+    finally:
+        os.unlink(f.name)
+
+
+def test_cli_stale_warning_emitted(capsys=None):
+    """cmd_query emits stale warning to stderr when oldest scan > 7 days."""
+    import tempfile, io, contextlib, argparse
+    from datetime import datetime, timezone, timedelta
+    from main import _stale_warning
+
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db = DB(f.name)
+    try:
+        stale_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+        db.upsert_repo_state("repo", None, stale_ts)
+        db.commit()
+
+        args = argparse.Namespace(config="ariadne.config.json")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            _stale_warning(db, args)
+        output = buf.getvalue()
+        assert "⚠" in output, f"Expected warning, got: {output!r}"
+        assert "10 days ago" in output or "days ago" in output
+        assert "scan" in output
+        db.close()
+    finally:
+        os.unlink(f.name)
+
+
+def test_cli_no_warning_when_fresh(capsys=None):
+    """No warning when scan is 1 day old."""
+    import tempfile, io, contextlib, argparse
+    from datetime import datetime, timezone, timedelta
+    from main import _stale_warning
+
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db = DB(f.name)
+    try:
+        fresh_ts = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        db.upsert_repo_state("repo", None, fresh_ts)
+        db.commit()
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            _stale_warning(db)
+        assert buf.getvalue() == "", f"Expected no warning, got: {buf.getvalue()!r}"
+        db.close()
+    finally:
+        os.unlink(f.name)
+
+
+def test_mcp_stale_warning_in_payload():
+    """_build_stale_warning returns a string when stale, None when fresh."""
+    import tempfile
+    from datetime import datetime, timezone, timedelta
+    import sys, os
+    sys.path.insert(0, os.path.dirname(__file__))
+    from mcp_server import _build_stale_warning
+
+    # Stale case
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    db_stale = DB(f.name)
+    try:
+        stale_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+        db_stale.upsert_repo_state("repo", None, stale_ts)
+        db_stale.commit()
+        w = _build_stale_warning(db_stale)
+        assert w is not None, "Expected stale warning"
+        assert "⚠" in w
+        assert "days ago" in w
+        db_stale.close()
+    finally:
+        os.unlink(f.name)
+
+    # Fresh case
+    f2 = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f2.close()
+    db_fresh = DB(f2.name)
+    try:
+        fresh_ts = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        db_fresh.upsert_repo_state("repo", None, fresh_ts)
+        db_fresh.commit()
+        w = _build_stale_warning(db_fresh)
+        assert w is None, f"Expected no warning, got: {w!r}"
+        db_fresh.close()
+    finally:
+        os.unlink(f2.name)
+
+
+# ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
 
@@ -483,6 +654,13 @@ if __name__ == "__main__":
         test_resolve_scanner_unknown,
         test_resolve_scanner_dotted_path,
         test_pluggable_scanner_end_to_end,
+        test_get_oldest_scanned_at_empty,
+        test_get_oldest_scanned_at_single,
+        test_get_oldest_scanned_at_multiple,
+        test_get_oldest_scanned_at_unparseable,
+        test_cli_stale_warning_emitted,
+        test_cli_no_warning_when_fresh,
+        test_mcp_stale_warning_in_payload,
     ]
 
     passed = failed = 0

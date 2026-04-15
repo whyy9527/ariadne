@@ -390,6 +390,20 @@ calls, no agents, no external services. Usage feedback is stored in a local
 
 ---
 
+**Q: How does Ariadne know when to re-scan?**
+
+If your last scan is more than 7 days old, `query`, `expand`, and `stats` emit a
+warning to stderr:
+
+```
+⚠ Oldest scan: N days ago. Re-scan: python3 main.py scan --config <path>
+```
+
+The MCP tools (`query_chains`, `expand_node`) include a `stale_warning` field in
+their JSON response (string when stale, `null` when fresh). Run `scan` to refresh.
+
+---
+
 **Q: Results feel generic at first. Will they improve?**
 
 Yes, gradually. As you use Ariadne, implicit feedback is collected from your
