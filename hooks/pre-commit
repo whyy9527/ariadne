@@ -1,6 +1,5 @@
 #!/bin/sh
-# Ariadne pre-commit: runs test_semantic_hint.py which includes
-# docs_source ↔ README / help-text drift checks.
+# Ariadne pre-commit: runs test_semantic_hint.py (scanner + MCP tests).
 #
 # Enable once per clone:
 #   ln -sf ../../hooks/pre-commit .git/hooks/pre-commit

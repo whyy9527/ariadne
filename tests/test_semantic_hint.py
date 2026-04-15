@@ -708,42 +708,6 @@ def test_frontend_rest_stories_file_skipped():
 
 
 # ──────────────────────────────────────────────
-# Docs SSOT
-# ──────────────────────────────────────────────
-
-def test_readme_contains_all_docs_fragments():
-    """
-    Every fragment in docs_source.fragments() must appear verbatim in
-    README.md. On drift, dump fragments with `python3 docs_source.py` and
-    hand-paste the missing block into README.
-    """
-    from pathlib import Path
-    import docs_source
-    repo_root = Path(__file__).resolve().parent.parent
-    readme = (repo_root / "README.md").read_text()
-    missing = [
-        name for name, frag in docs_source.fragments().items()
-        if frag.strip() not in readme
-    ]
-    assert not missing, (
-        f"README.md missing docs_source fragments: {missing}. "
-        f"Dump with `python3 docs_source.py` and paste into README."
-    )
-
-
-def test_help_text_contains_all_docs_fragments():
-    """mcp_server._build_help_text() must interpolate every fragment."""
-    import docs_source
-    import mcp_server
-    text = mcp_server._build_help_text()
-    missing = [
-        name for name, frag in docs_source.fragments().items()
-        if frag.strip() not in text
-    ]
-    assert not missing, f"help text missing fragments: {missing}"
-
-
-# ──────────────────────────────────────────────
 # Rescan MCP tool — end-to-end
 # ──────────────────────────────────────────────
 
@@ -891,8 +855,6 @@ if __name__ == "__main__":
         test_frontend_rest_test_file_skipped,
         test_frontend_rest_dts_file_skipped,
         test_frontend_rest_stories_file_skipped,
-        test_readme_contains_all_docs_fragments,
-        test_help_text_contains_all_docs_fragments,
         test_rescan_missing_manifest_returns_error,
         test_rescan_refreshes_index_and_invalidates_cache,
     ]

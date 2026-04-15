@@ -420,6 +420,58 @@ def _detect_config_issues() -> list[str]:
     return issues
 
 
+_GOLDEN_PATH = """\
+Golden path — driving Ariadne from an AI conversation:
+
+  1. query_chains(hint="createOrder")
+       → ranked clusters of GraphQL / REST / Kafka / frontend nodes across
+         services. Use this first to build cross-service context.
+
+  2. expand_node(name="order-created")
+       → one-hop neighbours of a specific node you want to trace.
+         If called within 10 minutes of a matching query_chains, Ariadne
+         automatically writes a positive feedback row — no extra call
+         needed. The follow-up expand IS the signal.
+
+  3. Read the files the returned clusters / neighbours point at.
+
+  4. log_feedback(hint, accepted=False, ...) ONLY when a result was
+     misleading. Most feedback is captured implicitly in step 2;
+     log_feedback is the manual escape hatch for thumbs-down.
+
+  Staleness: if query_chains or expand_node return a non-null
+  `stale_warning` field, call rescan() once — it re-scans the repos
+  listed in the install-time config, rebuilds embeddings if needed,
+  and clears the warning. Then retry your original query."""
+
+
+_SCANNERS = """\
+| Scanner            | Looks for                                                          |
+|--------------------|--------------------------------------------------------------------|
+| `graphql`          | `.graphql` / `.gql` SDL → Query / Mutation / Subscription / Type   |
+| `http`             | Spring `@RestController` (Java/Kotlin) → HTTP endpoints            |
+| `kafka`            | Spring `application.yaml` topics + `@KafkaListener` + producers    |
+| `backend_clients`  | Spring `RestClient` / `RestTemplate` outbound calls in `*Client.*` |
+| `frontend_graphql` | TypeScript `gql\\`\\`` literals → frontend Query/Mutation            |
+| `frontend_rest`    | `axios`/`fetch` calls in TS/TSX files, excluding tests/mocks/types |
+| `cube`             | cube.js `cube(...)` definitions                                    |"""
+
+
+def _install_usage() -> str:
+    """Install subcommand usage line, derived from main.build_parser()."""
+    try:
+        from main import build_parser
+        parser = build_parser()
+        install = parser._ariadne_subparsers["install"]
+        install.prog = "python3 main.py install"
+        usage = install.format_usage().strip()
+        if usage.lower().startswith("usage:"):
+            usage = usage[6:].strip()
+        return " ".join(usage.split())
+    except Exception:
+        return "python3 main.py install <config> <workspace-dir> [flags]"
+
+
 _HELP_TEMPLATE = """\
 Ariadne — cross-service API dependency graph for microservice codebases.
 {issues_block}
@@ -464,8 +516,6 @@ MORE INFO
 
 
 def _build_help_text() -> str:
-    import docs_source
-
     issues = _detect_config_issues()
     if issues:
         lines = ["", "⚠ DETECTED ISSUES"]
@@ -475,12 +525,11 @@ def _build_help_text() -> str:
         issues_block = "\n".join(lines)
     else:
         issues_block = ""
-    frags = docs_source.fragments()
     return _HELP_TEMPLATE.format(
         issues_block=issues_block,
-        install_usage=frags["install_usage"],
-        golden_path=frags["golden_path"],
-        scanners=frags["scanners"],
+        install_usage=_install_usage(),
+        golden_path=_GOLDEN_PATH,
+        scanners=_SCANNERS,
     )
 
 
