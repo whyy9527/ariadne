@@ -11,7 +11,7 @@
 
 **Cross-service API dependency graph and semantic code navigation for microservice architectures.**
 MCP stdio server for AI coding assistants (Claude Code, Cursor, Windsurf), with a
-CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF + optional embeddings.
+CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF + embeddings.
 
 ---
 
@@ -275,15 +275,10 @@ Disable with `export ARIADNE_FEEDBACK_BOOST=0`; JSON shape is unchanged either w
 No. Pure static analysis. Source → local SQLite (`ariadne.db`, `embeddings.db`,
 `feedback.db`). No network calls, no uploads.
 
-**How is this different from grepping across repos?**
-`grep` returns every line with a token — service classes, DTOs, tests, comments.
-Ariadne indexes only the *interface layer* (GraphQL SDL, REST controllers, Kafka
-topics, frontend API calls). Typical hint: ~40 grep hits vs. 3–5 structured
-clusters at roughly ¼ the token count.
-
 **How does it know when to re-scan?**
-If the oldest scan is >7 days old, CLI prints a stderr warning and MCP responses
-include a `stale_warning` field. Re-run `python3 main.py scan --config <path>`.
+If the oldest scan is >7 days old, MCP responses include a `stale_warning`
+field (CLI prints the same warning to stderr). From an AI conversation, call
+`rescan()`; from the shell, `python3 main.py scan --config <path>`.
 
 **Results feel generic at first — will they improve?**
 Yes. `expand_node` follow-ups implicitly log positive feedback; the boost rerank
@@ -396,8 +391,7 @@ python3 tests/test_onnx_embedder.py
 
 Covers normalizer, scoring, store, query/expand integration, embeddings,
 feedback boost, implicit feedback, and the ONNX embedder. A pre-commit hook
-at `hooks/pre-commit` runs `test_semantic_hint.py` (which includes the
-docs-source drift checks) — enable once per clone with:
+at `hooks/pre-commit` runs `test_semantic_hint.py` — enable once per clone with:
 
 ```bash
 ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
