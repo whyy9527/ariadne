@@ -36,9 +36,54 @@ SCANNER_REGISTRY = {
 
 
 def _load_callable(spec: str):
+    """Load a function from a 'module:func_name' spec (used for built-in scanners)."""
     mod_name, func_name = spec.split(":", 1)
     mod = __import__(mod_name, fromlist=[func_name])
     return getattr(mod, func_name)
+
+
+def _resolve_scanner(sc_name: str, sc_opts: dict):
+    """Return a callable ``fn(repo_path, service) -> list[dict]``.
+
+    Resolution order:
+    1. Built-in name (e.g. ``"graphql"``) → look up SCANNER_REGISTRY, load function.
+    2. Dotted-path class reference (``"module.path:ClassName"``) not in the built-in
+       registry → dynamic-import the class via importlib, instantiate with *sc_opts*
+       as kwargs, return a bound ``scan`` method.
+
+    Raises ``ValueError`` for unknown names / malformed specs.
+    """
+    import importlib
+
+    # --- 1. Built-in name ---
+    spec = SCANNER_REGISTRY.get(sc_name)
+    if spec is not None:
+        # Returns (callable, is_class_based=False) — caller passes sc_opts as kwargs
+        return _load_callable(spec), False
+
+    # --- 2. Dotted-path class reference ---
+    if ":" in sc_name:
+        mod_name, cls_name = sc_name.rsplit(":", 1)
+        try:
+            mod = importlib.import_module(mod_name)
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                f"Cannot import module '{mod_name}' for scanner '{sc_name}': {exc}"
+            ) from exc
+        cls = getattr(mod, cls_name, None)
+        if cls is None:
+            raise ValueError(
+                f"Module '{mod_name}' has no attribute '{cls_name}'"
+            )
+        instance = cls(**sc_opts)
+        # Returns (bound scan method, is_class_based=True) — opts consumed in __init__
+        return instance.scan, True
+
+    raise ValueError(
+        f"Unknown scanner '{sc_name}'. "
+        "Use a built-in name or a dotted-path class reference "
+        "(e.g. 'my_pkg.my_scanner:MyScanner')."
+    )
 
 
 def _load_config(path: str) -> dict:
@@ -148,12 +193,18 @@ def cmd_scan(args):
             else:
                 sc_name = sc.get("type")
                 sc_opts = {k: v for k, v in sc.items() if k != "type"}
-            spec = SCANNER_REGISTRY.get(sc_name)
-            if not spec:
-                print(f"  {name}: WARN unknown scanner '{sc_name}'", file=sys.stderr)
+            try:
+                fn, is_class_based = _resolve_scanner(sc_name, sc_opts)
+            except ValueError as exc:
+                print(f"  {name}: WARN {exc}", file=sys.stderr)
                 continue
-            fn = _load_callable(spec)
-            nodes = fn(path, name, **sc_opts) if sc_opts else fn(path, name)
+            # Built-in (function) scanners: forward sc_opts as kwargs.
+            # Class-based custom scanners: opts already consumed by __init__,
+            # so call scan(repo_path, service) with no extra kwargs.
+            if is_class_based:
+                nodes = fn(path, name)
+            else:
+                nodes = fn(path, name, **sc_opts) if sc_opts else fn(path, name)
             repo_new_nodes.extend(nodes)
             counts.append(f"{sc_name}={len(nodes)}")
 

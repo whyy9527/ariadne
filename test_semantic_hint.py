@@ -292,6 +292,168 @@ def test_feedback_db_persistence():
 
 
 # ──────────────────────────────────────────────
+# 6. Pluggable scanner registry
+# ──────────────────────────────────────────────
+
+def test_basescanner_abc():
+    """BaseScanner cannot be instantiated directly (it's abstract)."""
+    from scanner import BaseScanner
+    try:
+        BaseScanner()
+        assert False, "Should have raised TypeError"
+    except TypeError:
+        pass  # expected — ABC with abstractmethod
+
+
+def test_basescanner_subclass():
+    """A concrete subclass of BaseScanner satisfies isinstance check."""
+    from scanner import BaseScanner
+
+    class DummyScanner(BaseScanner):
+        def scan(self, repo_path: str, service: str) -> list[dict]:
+            return [{"id": f"{service}::dummy::test", "type": "dummy",
+                     "raw_name": "test", "service": service,
+                     "source_file": None, "method": None, "path": None}]
+
+    s = DummyScanner()
+    assert isinstance(s, BaseScanner)
+    result = s.scan("/tmp", "mysvc")
+    assert len(result) == 1
+    assert result[0]["service"] == "mysvc"
+
+
+def test_resolve_scanner_builtin():
+    """Built-in scanner names resolve to callable functions."""
+    from main import _resolve_scanner
+    fn, is_class = _resolve_scanner("graphql", {})
+    assert callable(fn)
+    assert is_class is False
+
+
+def test_resolve_scanner_unknown():
+    """Unknown non-dotted names raise ValueError."""
+    from main import _resolve_scanner
+    try:
+        _resolve_scanner("nonexistent_scanner", {})
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "nonexistent_scanner" in str(e)
+
+
+def test_resolve_scanner_dotted_path():
+    """Dotted-path class reference is dynamically imported and instantiated."""
+    import types
+    import sys
+    from scanner import BaseScanner
+
+    # Build a tiny in-memory module with a scanner class
+    mod = types.ModuleType("_test_custom_scanner_mod")
+
+    class _CustomScanner(BaseScanner):
+        def __init__(self, tag="default"):
+            self.tag = tag
+
+        def scan(self, repo_path: str, service: str) -> list[dict]:
+            return [{"id": f"{service}::custom::{self.tag}", "type": "custom",
+                     "raw_name": self.tag, "service": service,
+                     "source_file": None, "method": None, "path": None,
+                     "fields": []}]
+
+    mod._CustomScanner = _CustomScanner
+    sys.modules["_test_custom_scanner_mod"] = mod
+
+    try:
+        from main import _resolve_scanner
+        fn, is_class = _resolve_scanner(
+            "_test_custom_scanner_mod:_CustomScanner",
+            {"tag": "hello"},
+        )
+        assert callable(fn)
+        assert is_class is True
+        result = fn("/tmp", "testsvc")
+        assert len(result) == 1
+        assert result[0]["raw_name"] == "hello"
+        assert result[0]["service"] == "testsvc"
+    finally:
+        del sys.modules["_test_custom_scanner_mod"]
+
+
+def test_pluggable_scanner_end_to_end():
+    """Custom scanner declared by dotted path produces nodes in the DB via cmd_scan."""
+    import types
+    import sys
+    import json
+    import tempfile
+    from scanner import BaseScanner
+
+    # Register an in-memory scanner module
+    mod = types.ModuleType("_e2e_custom_scanner")
+
+    class _E2EScanner(BaseScanner):
+        def __init__(self, label="node"):
+            self.label = label
+
+        def scan(self, repo_path: str, service: str) -> list[dict]:
+            return [{
+                "id": f"{service}::custom_e2e::{self.label}",
+                "type": "custom_e2e",
+                "raw_name": self.label,
+                "service": service,
+                "source_file": None,
+                "method": None,
+                "path": None,
+                "fields": [],
+            }]
+
+    mod._E2EScanner = _E2EScanner
+    sys.modules["_e2e_custom_scanner"] = mod
+
+    try:
+        with tempfile.TemporaryDirectory() as repo_dir:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            ) as cfg_file:
+                json.dump({
+                    "repos": [{
+                        "name": "e2e-svc",
+                        "path": repo_dir,
+                        "scanners": [{
+                            "type": "_e2e_custom_scanner:_E2EScanner",
+                            "label": "ping",
+                        }],
+                    }]
+                }, cfg_file)
+                cfg_path = cfg_file.name
+
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as db_file:
+                db_path = db_file.name
+
+            import argparse
+            from main import cmd_scan
+            args = argparse.Namespace(
+                config=cfg_path,
+                db=db_path,
+                force=True,
+            )
+            cmd_scan(args)
+
+            from store.db import DB
+            db = DB(db_path)
+            nodes = db.get_nodes_by_service("e2e-svc")
+            db.close()
+
+            assert len(nodes) >= 1, f"Expected >=1 node, got {nodes}"
+            assert any(n["raw_name"] == "ping" for n in nodes), \
+                f"No 'ping' node found in {[n['raw_name'] for n in nodes]}"
+
+            import os
+            os.unlink(cfg_path)
+            os.unlink(db_path)
+    finally:
+        del sys.modules["_e2e_custom_scanner"]
+
+
+# ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
 
@@ -315,6 +477,12 @@ if __name__ == "__main__":
         test_build_and_recall_embeddings,
         test_feedback_db_log_and_count,
         test_feedback_db_persistence,
+        test_basescanner_abc,
+        test_basescanner_subclass,
+        test_resolve_scanner_builtin,
+        test_resolve_scanner_unknown,
+        test_resolve_scanner_dotted_path,
+        test_pluggable_scanner_end_to_end,
     ]
 
     passed = failed = 0
