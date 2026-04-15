@@ -12,3 +12,4 @@ venv/
 # Local Ariadne config — never commit a user's config (paths leak repo layout)
 ariadne.config.json
 awesome-mcp-servers/
+GROWTH_NOTES.md
