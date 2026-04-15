@@ -241,7 +241,7 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "ariadne_help":
-        return [TextContent(type="text", text=_HELP_TEXT)]
+        return [TextContent(type="text", text=_build_help_text())]
     elif name == "query_chains":
         db = _get_db(_DB_PATH)
         edb = _get_edb(_EMB_PATH, db)
@@ -256,43 +256,92 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
-_HELP_TEXT = """\
-Ariadne — cross-service API dependency graph for microservice codebases.
+def _detect_config_issues() -> list[str]:
+    """
+    Runtime config/state sanity checks for ariadne_help.
 
+    Returns a list of short human-readable issue strings. Empty list means
+    everything looks healthy. Never raises — a broken help tool is worse than
+    a silent one.
+    """
+    issues: list[str] = []
+
+    # DB file existence
+    if not os.path.exists(_DB_PATH):
+        issues.append(
+            f"DB not found at {_DB_PATH}. Run "
+            f"`python3 main.py scan --config ariadne.config.json` to build it."
+        )
+        return issues  # nothing else meaningful without a DB
+
+    # DB contents
+    try:
+        db = _get_db(_DB_PATH)
+        node_count = db.node_count()
+        if node_count == 0:
+            issues.append(
+                "DB exists but contains 0 nodes. Scan probably ran against "
+                "empty repos or with a config that matched no files. "
+                "Check ariadne.config.json paths and scanner list."
+            )
+    except Exception as e:
+        issues.append(f"DB open failed: {e}")
+        return issues
+
+    # Staleness
+    try:
+        stale = _build_stale_warning(db)
+        if stale:
+            issues.append(stale.lstrip("⚠ ").strip())
+    except Exception:
+        pass
+
+    # Embeddings DB (optional, only a hint — not a hard failure)
+    if not os.path.exists(_EMB_PATH):
+        issues.append(
+            f"embeddings.db missing at {_EMB_PATH}. Semantic recall fallback "
+            "is disabled until the first query rebuilds it (~30s)."
+        )
+    else:
+        try:
+            from store.embedding_db import EmbeddingDB
+            edb = EmbeddingDB(_EMB_PATH)
+            if edb.count() == 0:
+                issues.append("embeddings.db exists but is empty.")
+        except Exception:
+            pass
+
+    return issues
+
+
+_HELP_TEMPLATE = """\
+Ariadne — cross-service API dependency graph for microservice codebases.
+{issues_block}
 WHAT IT DOES
   Given a business term or endpoint name, returns the chain of GraphQL
   operations, HTTP endpoints, Kafka topics, and frontend queries that
-  participate in that feature across all your services.
+  participate in that feature across all your services. For per-tool
+  semantics, read each tool's own description in the MCP tool list —
+  this message only covers workflow + setup + diagnostics.
 
-TOOLS
-  query_chains(hint, top_n)  — Business term → ranked cross-service clusters.
-                               Best for: "what does createOrder involve?"
-  expand_node(name)          — Known node → direct neighbours with scores.
-                               Best for: "what listens to order-created?"
-  log_feedback(hint, ...)    — Record whether results were useful.
-  ariadne_help()             — This message.
+{golden_path}
 
 QUICK SETUP (for your own codebase)
   1. Create ariadne.config.json in your workspace:
-       {
+       {{
          "repos": [
-           { "name": "gateway",    "path": "../gateway",    "scanners": ["graphql"] },
-           { "name": "orders-svc", "path": "../orders-svc", "scanners": ["http", "kafka"] },
-           { "name": "web",        "path": "../web",        "scanners": ["frontend_graphql", "frontend_rest"] }
+           {{ "name": "gateway",    "path": "../gateway",    "scanners": ["graphql"] }},
+           {{ "name": "orders-svc", "path": "../orders-svc", "scanners": ["http", "kafka"] }},
+           {{ "name": "web",        "path": "../web",        "scanners": ["frontend_graphql", "frontend_rest"] }}
          ]
-       }
-  2. python3 main.py install --config ariadne.config.json
-     (scans repos, builds DB, writes .mcp.json, injects CLAUDE.md snippet)
+       }}
+  2. {install_usage}
+     (e.g. workspace=~/Desktop/work — scans repos, builds <workspace>/.ariadne/,
+      writes <workspace>/.mcp.json, injects <workspace>/CLAUDE.md snippet)
   3. Restart Claude Code — ariadne shows up as an MCP server.
 
 SUPPORTED SCANNERS
-  graphql            .graphql / .gql SDL → Query / Mutation / Subscription
-  http               Spring @RestController (Java/Kotlin) → HTTP endpoints
-  kafka              application.yaml + @KafkaListener + KafkaTemplate.send
-  backend_clients    Spring RestClient / RestTemplate outbound calls
-  frontend_graphql   TypeScript gql`` literals → frontend Query/Mutation
-  frontend_rest      axiosRequest.<verb>(...) and fetch(...) calls
-  cube               cube.js cube(...) model definitions
+{scanners}
 
 WHY RESULTS MAY BE EMPTY
   - DB not built yet — run `python3 main.py scan --config ariadne.config.json`
@@ -306,6 +355,27 @@ MORE INFO
   Repo:  https://github.com/whyy9527/ariadne
   Docs:  README.md sections "Quick start", "Available scanners", "FAQ"
 """
+
+
+def _build_help_text() -> str:
+    import docs_source
+
+    issues = _detect_config_issues()
+    if issues:
+        lines = ["", "⚠ DETECTED ISSUES"]
+        for i, msg in enumerate(issues, 1):
+            lines.append(f"  {i}. {msg}")
+        lines.append("")
+        issues_block = "\n".join(lines)
+    else:
+        issues_block = ""
+    frags = docs_source.fragments()
+    return _HELP_TEMPLATE.format(
+        issues_block=issues_block,
+        install_usage=frags["install_usage"],
+        golden_path=frags["golden_path"],
+        scanners=frags["scanners"],
+    )
 
 
 def _extract_cluster_node_names(results: list[dict]) -> list[dict]:

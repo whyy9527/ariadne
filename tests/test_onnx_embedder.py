@@ -11,7 +11,10 @@ Validates:
    captures bge-small-en-v1.5 quantized cosine rankings)
 """
 import math
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _cosine(a, b):

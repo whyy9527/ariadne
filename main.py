@@ -380,23 +380,21 @@ def cmd_install(args):
 
     # 2. Warm embeddings.db so the first MCP query doesn't pay a cold-start tax.
     #    Downloads the ONNX model (~34MB) on first run; subsequent runs reuse cache.
-    if not args.no_embed:
-        from store.db import DB as _DB
-        from store.embedding_db import EmbeddingDB
-        from scoring.embedder import build_embeddings, _get_session
-        _db = _DB(db_path)
-        edb = EmbeddingDB(emb_path)
-        n_nodes = _db.node_count()
-        # Ensure model is downloaded and session loads before embedding
-        print("==> Verifying ONNX embedding model (downloads ~34MB on first run)...")
-        _get_session()
-        print("    ONNX session ready")
-        if edb.is_stale(n_nodes):
-            print(f"==> Building embeddings for {n_nodes} nodes...")
-            build_embeddings(_db.get_all_nodes(), edb)
-            print("    embeddings ready")
-        else:
-            print("==> Embeddings up to date")
+    from store.db import DB as _DB
+    from store.embedding_db import EmbeddingDB
+    from scoring.embedder import build_embeddings, _get_session
+    _db = _DB(db_path)
+    edb = EmbeddingDB(emb_path)
+    n_nodes = _db.node_count()
+    print("==> Verifying ONNX embedding model (downloads ~34MB on first run)...")
+    _get_session()
+    print("    ONNX session ready")
+    if edb.is_stale(n_nodes):
+        print(f"==> Building embeddings for {n_nodes} nodes...")
+        build_embeddings(_db.get_all_nodes(), edb)
+        print("    embeddings ready")
+    else:
+        print("==> Embeddings up to date")
 
     # 3. Write .mcp.json
     mcp_json = os.path.join(workspace, ".mcp.json")
@@ -597,7 +595,13 @@ def cmd_stats(args):
         print(f"  {s}: {c}")
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """
+    Single source of truth for Ariadne's CLI surface.
+
+    Importable so mcp_server.py can derive subcommand usage strings from the
+    same argparse definitions instead of hand-copying them into help text.
+    """
     parser = argparse.ArgumentParser(description="ariadne: cross-service chain hinter")
     parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
     parser.add_argument("--emb", default=DEFAULT_EMB, help="Embeddings DB path")
@@ -642,13 +646,27 @@ def main():
     install_parser.add_argument("--snippet", default=None, help="Override bundled CLAUDE.md snippet")
     install_parser.add_argument("--no-scan", action="store_true", help="Skip scan; reuse existing DB")
     install_parser.add_argument("--force", action="store_true", help="Force full re-scan instead of incremental")
-    install_parser.add_argument("--no-embed", action="store_true", help="Skip warming embeddings.db (first MCP query will rebuild it ~30s)")
     install_parser.add_argument(
         "--marker",
         default="## Ariadne",
         help="Idempotency marker; if present in CLAUDE.md, skip injection (default: '## Ariadne')",
     )
 
+    # Attach subparser handles so callers (e.g. mcp_server) can introspect
+    # individual subcommands without reparsing.
+    parser._ariadne_subparsers = {
+        "scan": scan_parser,
+        "query": q_parser,
+        "expand": e_parser,
+        "install": install_parser,
+        "config": config_parser,
+    }
+    return parser
+
+
+def main():
+    parser = build_parser()
+    config_parser = parser._ariadne_subparsers["config"]
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
