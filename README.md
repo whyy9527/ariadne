@@ -102,33 +102,23 @@ Golden path — driving Ariadne from an AI conversation:
 
 ## Quick start
 
-Ariadne is an [MCP](https://modelcontextprotocol.io) stdio server. You run
-`install` once, restart Claude Code, and the assistant picks up Ariadne's
-tools automatically — no Bash wrapping, no shell calls.
+Three commands, then restart Claude Code.
 
 ```bash
-# Python 3.10+
-
-# 1. Describe your repos in a config file
-cp ariadne.config.example.json ariadne.config.json
-$EDITOR ariadne.config.json
-
-# 2. One shot: scan + build embeddings + register as MCP server
 pip install mcp onnxruntime tokenizers huggingface_hub
+cp ariadne.config.example.json ariadne.config.json   # edit repos inside
 python3 main.py install ariadne.config.json ~/your-workspace
-
-# 3. Restart Claude Code. Done.
 ```
 
-`install` scans your repos, builds `<workspace>/.ariadne/` (DB, embeddings,
-manifest), writes `<workspace>/.mcp.json`, and injects a usage snippet into
-`<workspace>/CLAUDE.md`. It's idempotent — re-run it to rescan after pulling
-new code (or let the assistant call `rescan` from inside the conversation
-when it sees a `stale_warning`).
+`install` is idempotent — re-run it after pulling new code, or let the
+assistant call `rescan` when it sees a `stale_warning`. See `--help` for
+flags (`--no-scan`, `--force`, `--snippet`, `--marker`).
 
-Flags: `--no-scan`, `--force`, `--snippet PATH`, `--marker STRING`.
+---
 
-### Tools the assistant sees
+## Tools
+
+What the assistant sees once `install` is done and Claude Code is restarted:
 
 | Tool           | Args                                  | Purpose                                |
 |----------------|---------------------------------------|----------------------------------------|
@@ -136,7 +126,11 @@ Flags: `--no-scan`, `--force`, `--snippet PATH`, `--marker STRING`.
 | `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
 | `rescan`       | *(none)*                              | Refresh the index in place when a response has a `stale_warning`; git-hash incremental, returns `{nodes, duration_ms}` |
 | `ariadne_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
-| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see Feedback loop) |
+| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see *Feedback boost* under Architecture) |
+
+---
+
+## Configuration
 
 ### Config format
 
@@ -240,32 +234,6 @@ class GoRouteScanner(BaseScanner):
 
 Zero install required — no entry points, no `pyproject.toml` changes.
 Just make sure the module is importable from wherever you run `python3 main.py`.
-
----
-
-## Feedback loop
-
-Ariadne gradually adapts cluster ranking to your team's vocabulary, with no
-model training or uploads. `feedback.db` is **local only**; each developer
-starts cold and builds their own signal.
-
-Every `query_chains` call caches returned clusters in memory for 10 minutes.
-A follow-up `expand_node(name)` that substring-matches a node in one of those
-pending clusters auto-writes an `accepted=True` row — the expand IS the signal,
-no extra call needed. `log_feedback(hint, accepted, ...)` is the manual escape
-hatch for thumbs-down or CLI usage; the `source` column distinguishes
-`'implicit_expand'` from `'manual'`.
-
-On the next `query()` for the same hint, prior accepted nodes are counted per
-cluster and applied as:
-
-```
-final_score = confidence + 0.15 * sum(prior_accepted_count per node in cluster)
-```
-
-Weight (`0.15`) and decay window (`90 days`) are intentionally conservative —
-lexical confidence still dominates. Clusters with no history are unaffected.
-Disable with `export ARIADNE_FEEDBACK_BOOST=0`; JSON shape is unchanged either way.
 
 ---
 
@@ -377,6 +345,25 @@ is used for two narrow jobs:
 The ONNX model is ~34 MB (int8 quantized) and runs on CPU via `onnxruntime`.
 Cold start is ~0.3s (vs ~13s with the previous PyTorch-based implementation).
 Vectors are cached in `embeddings.db`; only the query hint is embedded at query time.
+
+### Feedback boost
+
+A final rerank step that adapts ranking to your team's vocabulary — no model
+training, no uploads. `feedback.db` is local per developer.
+
+Every `query_chains` call caches returned clusters for 10 minutes. A follow-up
+`expand_node(name)` that substring-matches a node in a pending cluster
+auto-writes an `accepted=True` row — the expand IS the signal.
+`log_feedback(hint, accepted, ...)` is the manual escape hatch for thumbs-down.
+
+On the next `query()` for the same hint:
+
+```
+final_score = confidence + 0.15 * sum(prior_accepted_count per node in cluster)
+```
+
+Weight (`0.15`) and decay window (`90 days`) are intentionally conservative —
+lexical confidence still dominates. Disable with `export ARIADNE_FEEDBACK_BOOST=0`.
 
 ---
 
