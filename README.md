@@ -96,6 +96,7 @@ On `stale_warning`, call `rescan()` and retry. See FAQ.
 Three commands, then restart Claude Code.
 
 ```bash
+git clone https://github.com/whyy9527/ariadne.git && cd ariadne
 pip install mcp onnxruntime tokenizers huggingface_hub
 cp ariadne.config.example.json ariadne.config.json   # edit repos inside
 python3 main.py install ariadne.config.json ~/your-workspace
