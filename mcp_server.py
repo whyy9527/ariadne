@@ -488,6 +488,8 @@ WHAT IT DOES
 {golden_path}
 
 QUICK SETUP (for your own codebase)
+  0. git clone https://github.com/whyy9527/ariadne.git && cd ariadne
+     pip install mcp onnxruntime tokenizers huggingface_hub
   1. Create ariadne.config.json in your workspace:
        {{
          "repos": [
