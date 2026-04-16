@@ -283,7 +283,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 async def _rescan() -> list[TextContent]:
     """
-    Refresh the index by re-running scan + embed against the install-time
+    Refresh the index by re-running scan against the install-time
     config, then drop cached DB handles. Reads config_path from the manifest
     written by `install`.
     """
@@ -325,7 +325,7 @@ async def _rescan() -> list[TextContent]:
 
     import main as _main
     try:
-        summary = _main.run_scan_and_embed(config_path, _DB_PATH)
+        summary = _main.run_scan(config_path, _DB_PATH)
     except SystemExit as e:
         return [TextContent(
             type="text",
@@ -405,8 +405,8 @@ Golden path — driving Ariadne from an AI conversation:
 
   Staleness: if query_chains or expand_node return a non-null
   `stale_warning` field, call rescan() once — it re-scans the repos
-  listed in the install-time config, rebuilds embeddings if needed,
-  and clears the warning. Then retry your original query."""
+  listed in the install-time config and clears the warning.
+  Then retry your original query."""
 
 
 _SCANNERS = """\

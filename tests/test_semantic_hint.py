@@ -692,7 +692,7 @@ def test_rescan_refreshes_index_and_invalidates_cache():
         db_path = os.path.join(data_dir, "ariadne.db")
         manifest_path = os.path.join(data_dir, "manifest.json")
 
-        _main.run_scan_and_embed(config_path, db_path)
+        _main.run_scan(config_path, db_path)
         _write(manifest_path, _json.dumps({"config_path": config_path}))
 
         # Verify install-time state

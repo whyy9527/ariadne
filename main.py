@@ -332,12 +332,11 @@ DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
 MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
 
 
-def run_scan_and_embed(config_path: str, db_path: str, emb_path: str = None, force: bool = False) -> dict:
+def run_scan(config_path: str, db_path: str, force: bool = False) -> dict:
     """
     Shared worker: scan repos, build TF-IDF token edges.
     Used by both `install` (first-time setup) and the MCP `rescan` tool.
     Returns a summary dict {nodes, duration_ms} — no stdout assumptions, no sys.exit.
-    The emb_path parameter is accepted but ignored (embeddings removed).
     """
     import time
     t0 = time.monotonic()
@@ -385,7 +384,7 @@ def cmd_install(args):
             sys.exit(1)
     else:
         print(f"==> Scanning via {config_path}")
-        run_scan_and_embed(config_path, db_path, force=args.force)
+        run_scan(config_path, db_path, force=args.force)
 
     # 2. Persist manifest so the MCP `rescan` tool can find the config later.
     with open(manifest_path, "w") as f:
