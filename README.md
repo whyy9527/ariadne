@@ -351,8 +351,6 @@ ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
   generalisation (current boost is count-based within the same hint)
 - Watch mode: hook into git post-commit / file events to auto-trigger
   `rescan` instead of waiting for a stale_warning
-- Parameter pass across all tools: task-oriented names over implementation
-  names; unify verb prefixes for naming consistency
 
 ### Non-goals
 
