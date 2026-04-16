@@ -20,7 +20,6 @@ import subprocess
 from datetime import datetime, timezone
 
 DEFAULT_DB = os.path.join(os.path.dirname(__file__), "ariadne.db")
-DEFAULT_EMB = os.path.join(os.path.dirname(__file__), "embeddings.db")
 DEFAULT_CONFIG = "ariadne.config.json"
 
 STALE_SCAN_DAYS = 7  # must match store/db.STALE_SCAN_DAYS
@@ -185,7 +184,7 @@ def cmd_scan(args):
         sys.exit(1)
 
     mode = "FULL rescan" if force else "incremental"
-    print(f"[1/6] Scanning {len(repos)} repos ({mode}; config: {cfg_path}) ...")
+    print(f"[1/4] Scanning {len(repos)} repos ({mode}; config: {cfg_path}) ...")
 
     enriched: list[dict] = []
     any_rescanned = False
@@ -270,12 +269,12 @@ def cmd_scan(args):
         sys.exit(1)
 
     if not any_rescanned:
-        print(f"\n[2/6] All repos unchanged — skipping normalize/IDF/scoring/embedding.")
+        print(f"\n[2/4] All repos unchanged — skipping normalize/IDF/scoring.")
         print(f"Done. DB: {args.db}")
         print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
         return
 
-    print(f"\n[2/6] Normalizing — {len(enriched)} nodes total")
+    print(f"\n[2/4] Normalizing — {len(enriched)} nodes total")
     # Re-normalize reused nodes too so IDF sees consistent token lists.
     for node in enriched:
         if not node.get("tokens") or not node.get("field_tokens"):
@@ -283,7 +282,7 @@ def cmd_scan(args):
             node["tokens"] = norm["tokens"]
             node["field_tokens"] = norm["field_tokens"]
 
-    print("[3/6] Computing TF-IDF weights...")
+    print("[3/4] Computing TF-IDF weights...")
     idf = compute_idf(enriched)
     db.upsert_token_idf(idf)
     db.commit()
@@ -291,7 +290,7 @@ def cmd_scan(args):
     top_common = sorted(idf.items(), key=lambda x: x[1])[:8]
     print(f"  Most common (dampened): {[t for t,_ in top_common]}")
 
-    print("[4/6] Scoring pairs (full re-score — edges depend on global IDF)...")
+    print("[4/4] Scoring pairs (full re-score — edges depend on global IDF)...")
     db.delete_all_edges()
     edges = score_all_pairs(enriched, min_score=0.12)
     print(f"  Generated {len(edges)} edges above threshold")
@@ -299,31 +298,6 @@ def cmd_scan(args):
     for src_id, tgt_id, scores, total in edges:
         db.upsert_edge(src_id, tgt_id, scores, total)
     db.commit()
-
-    from store.embedding_db import EmbeddingDB
-    from scoring.embedder import build_embeddings, compute_semantic_edges
-
-    emb_path = getattr(args, "emb", DEFAULT_EMB)
-    edb = EmbeddingDB(emb_path)
-    print(f"[5/6] Building embeddings...")
-    n_emb = build_embeddings(enriched, edb)
-    print(f"  Embedded {n_emb} nodes")
-
-    print("[6/6] Computing semantic edges...")
-    sem_edges = compute_semantic_edges(edb, threshold=0.65)
-    new_count = 0
-    updated_count = 0
-    for src, tgt, sem_score in sem_edges:
-        existing = db.get_edge(src, tgt)
-        if existing:
-            new_total = max(existing["total_score"], sem_score * 0.85)
-            db.update_edge_semantic(src, tgt, sem_score, new_total)
-            updated_count += 1
-        else:
-            db.upsert_edge(src, tgt, {"semantic_score": sem_score}, total=sem_score * 0.85)
-            new_count += 1
-    db.commit()
-    print(f"  {len(sem_edges)} semantic pairs: {new_count} new edges, {updated_count} updated")
 
     print(f"Done. DB: {args.db}")
     print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
@@ -358,16 +332,17 @@ DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
 MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
 
 
-def run_scan_and_embed(config_path: str, db_path: str, emb_path: str, force: bool = False) -> dict:
+def run_scan_and_embed(config_path: str, db_path: str, emb_path: str = None, force: bool = False) -> dict:
     """
-    Shared worker: scan (which now includes embedding computation at scan time).
+    Shared worker: scan repos, build TF-IDF token edges.
     Used by both `install` (first-time setup) and the MCP `rescan` tool.
     Returns a summary dict {nodes, duration_ms} — no stdout assumptions, no sys.exit.
+    The emb_path parameter is accepted but ignored (embeddings removed).
     """
     import time
     t0 = time.monotonic()
 
-    scan_args = argparse.Namespace(config=config_path, db=db_path, emb=emb_path, force=force)
+    scan_args = argparse.Namespace(config=config_path, db=db_path, force=force)
     cmd_scan(scan_args)
 
     from store.db import DB as _DB
@@ -399,11 +374,10 @@ def cmd_install(args):
     data_dir = os.path.join(workspace, ".ariadne")
     os.makedirs(data_dir, exist_ok=True)
     db_path  = os.path.join(data_dir, "ariadne.db")
-    emb_path = os.path.join(data_dir, "embeddings.db")
     fb_path  = os.path.join(data_dir, "feedback.db")
     manifest_path = os.path.join(data_dir, "manifest.json")
 
-    # 1. Scan + embeddings (via shared helper)
+    # 1. Scan (via shared helper)
     if args.no_scan:
         print(f"==> --no-scan; expecting DB at {db_path}")
         if not os.path.isfile(db_path):
@@ -411,7 +385,7 @@ def cmd_install(args):
             sys.exit(1)
     else:
         print(f"==> Scanning via {config_path}")
-        run_scan_and_embed(config_path, db_path, emb_path, force=args.force)
+        run_scan_and_embed(config_path, db_path, force=args.force)
 
     # 2. Persist manifest so the MCP `rescan` tool can find the config later.
     with open(manifest_path, "w") as f:
@@ -627,7 +601,6 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="ariadne: cross-service chain hinter")
     parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
-    parser.add_argument("--emb", default=DEFAULT_EMB, help="Embeddings DB path")
     sub = parser.add_subparsers(dest="command")
 
     scan_parser = sub.add_parser("scan", help="Scan repos and build DB")

@@ -9,9 +9,9 @@
 
 > Ariadne's thread — a way out of the microservice maze.
 
-**Cross-service API dependency graph and semantic code navigation for microservice architectures.**
+**Cross-service API dependency graph for microservice architectures.**
 MCP stdio server for AI coding assistants (Claude Code, Cursor, Windsurf), with a
-CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF + embeddings.
+CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF. Zero ML dependencies.
 
 ---
 
@@ -97,7 +97,7 @@ Three commands, then restart Claude Code.
 
 ```bash
 git clone https://github.com/whyy9527/ariadne.git && cd ariadne
-pip install mcp onnxruntime tokenizers huggingface_hub
+pip install mcp
 cp ariadne.config.example.json ariadne.config.json   # edit repos inside
 python3 main.py install ariadne.config.json ~/your-workspace
 ```
@@ -219,8 +219,8 @@ class GoRouteScanner(BaseScanner):
 ## FAQ
 
 **Does Ariadne require a running cluster, server, or network?**
-No. Pure static analysis. Source → local SQLite (`ariadne.db`, `embeddings.db`,
-`feedback.db`). No network calls, no uploads.
+No. Pure static analysis, zero ML dependencies. Source → local SQLite (`ariadne.db`,
+`feedback.db`). No network calls, no uploads, no ONNX runtime.
 
 **How does it know when to re-scan?**
 If the oldest scan is >7 days old, MCP responses include a `stale_warning`
@@ -246,22 +246,20 @@ ariadne/
 ├── scanner/       # per-framework extractors → node dicts
 ├── normalizer/    # camelCase/snake/kebab → tokens
 ├── scoring/
-│   ├── engine.py  # TF-IDF + IDF-Jaccard → token edges
-│   └── embedder.py # bge-small ONNX → semantic edges
-├── store/         # SQLite: ariadne.db / embeddings.db / feedback.db
-├── query/         # query / expand — pure SQLite reads, zero ML
+│   └── engine.py  # TF-IDF + IDF-Jaccard → token edges
+├── store/         # SQLite: ariadne.db / feedback.db
+├── query/         # query / expand — pure SQLite reads
 ├── mcp_server.py  # MCP stdio server
 ├── main.py        # CLI + scan orchestration
 └── tests/         # pytest suite
 ```
 
-### Scoring — dual-track, merge at scan time
+### Scoring
 
-Two independent scoring pipelines run at scan time and merge into a single
-`edges` table. Query time reads edges uniformly — it does not know or care
-which pipeline produced them.
+Token-based scoring pipeline runs at scan time and populates the `edges` table.
+Query time reads edges via plain SQLite — no model loading, no inference.
 
-**Track 1 — Token edges** (`scoring/engine.py`)
+**Token edges** (`scoring/engine.py`)
 
 Information retrieval on tokenized node names. `createOrder` →
 `["create", "order"]`, compared via IDF-weighted Jaccard:
@@ -284,21 +282,9 @@ role_mult    = 1.3   for complementary pairs
 service_mult = 1.25  cross-service / 0.8 same-service
 ```
 
-**Track 2 — Semantic edges** (`scoring/embedder.py`)
-
-`bge-small-en-v1.5` (ONNX int8, ~34 MB) embeds every node name in batches
-of 64. Full pairwise cosine similarity via numpy matrix multiply
-(`N × 384 @ 384 × N`). Pairs with cosine ≥ 0.65 produce semantic edges.
-
-**Merge rule** — for each node pair, the final edge score is:
-
-```
-total_score = max(token_total, semantic_score * 0.85)
-```
-
-Token edges stay dominant where naming conventions align. Semantic edges
-fill the gap where services use different words for the same concept
-(`assignHomework` ↔ `assignStudentsToTask`).
+The "different names, same concept" problem (`assignHomework` ↔ `assignStudentsToTask`)
+is handled by the feedback boost: as teams navigate, clusters that prove useful
+for a given hint rise in ranking — no embeddings needed.
 
 ### Clustering
 
@@ -312,12 +298,6 @@ Two-stage, `O(anchors × neighbours)`, independent of repo count.
 4. Per cluster, take top 2 nodes per `(service, type)`, capped at 12.
 5. Confidence = mean edge score · 0.6 + type diversity · 0.2 + service
    diversity · 0.2.
-
-### Query-time guarantee
-
-Zero ML inference at query time. The query engine reads pre-computed edges
-from SQLite — no model loading, no vector search, no ONNX runtime.
-Cold start is effectively zero.
 
 ### Feedback boost
 
@@ -346,7 +326,6 @@ lexical confidence still dominates. Disable with `export ARIADNE_FEEDBACK_BOOST=
 python3 tests/test_semantic_hint.py
 python3 tests/test_feedback_boost.py
 python3 tests/test_implicit_feedback.py
-python3 tests/test_onnx_embedder.py
 ```
 
 A pre-commit hook at `hooks/pre-commit` runs `test_semantic_hint.py` —

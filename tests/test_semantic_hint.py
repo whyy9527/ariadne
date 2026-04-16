@@ -180,92 +180,7 @@ def test_db_edge():
 
 
 # ──────────────────────────────────────────────
-# 4. Embeddings
-# ──────────────────────────────────────────────
-
-def test_embedding_db_upsert_and_retrieve():
-    from store.embedding_db import EmbeddingDB
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        path = f.name
-    try:
-        edb = EmbeddingDB(path)
-        vec = [0.1, 0.2, 0.3, 0.4]
-        edb.upsert("node::1", vec)
-        edb.commit()
-        all_vecs = edb.get_all()
-        assert "node::1" in all_vecs
-        retrieved = all_vecs["node::1"]
-        assert len(retrieved) == 4
-        assert abs(retrieved[0] - 0.1) < 1e-5
-        edb.close()
-    finally:
-        os.unlink(path)
-
-
-def test_embedding_db_stale_detection():
-    from store.embedding_db import EmbeddingDB
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        path = f.name
-    try:
-        edb = EmbeddingDB(path)
-        assert edb.is_stale(5)
-        edb.upsert("n1", [0.1, 0.2])
-        edb.upsert("n2", [0.3, 0.4])
-        edb.commit()
-        assert not edb.is_stale(2)
-        assert edb.is_stale(3)
-        edb.close()
-    finally:
-        os.unlink(path)
-
-
-def test_embedder_cosine():
-    """Verify L2-normalized vectors have correct cosine properties via numpy dot product."""
-    import math
-    import numpy as np
-    a = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    b = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    assert abs(float(a @ b) - 1.0) < 1e-6
-    c = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-    assert abs(float(a @ c)) < 1e-6
-
-
-def test_build_and_recall_embeddings():
-    """build_embeddings + compute_semantic_edges finds semantically related pairs."""
-    from store.embedding_db import EmbeddingDB
-    from scoring.embedder import build_embeddings, compute_semantic_edges
-
-    nodes = [
-        {"id": "svc::a", "raw_name": "createOrder", "tokens": ["create", "order"], "type": "http_endpoint", "service": "svc"},
-        {"id": "svc::b", "raw_name": "placePurchase", "tokens": ["place", "purchase"], "type": "graphql_mutation", "service": "svc"},
-        {"id": "svc::c", "raw_name": "getWeatherForecast", "tokens": ["get", "weather", "forecast"], "type": "http_endpoint", "service": "svc"},
-    ]
-
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        path = f.name
-    try:
-        edb = EmbeddingDB(path)
-        n = build_embeddings(nodes, edb)
-        assert n == 3
-
-        # With threshold=0.0, should get pairs; createOrder↔placePurchase should score higher than weather pairs
-        edges = compute_semantic_edges(edb, threshold=0.0)
-        assert len(edges) > 0, "Expected at least one semantic edge"
-        # Find the score between createOrder and placePurchase vs weather
-        pair_scores = {(min(a, b), max(a, b)): s for a, b, s in edges}
-        order_purchase = pair_scores.get(("svc::a", "svc::b"), 0.0)
-        order_weather = pair_scores.get(("svc::a", "svc::c"), 0.0)
-        assert order_purchase > order_weather, (
-            f"createOrder↔placePurchase ({order_purchase:.3f}) should score higher than "
-            f"createOrder↔weather ({order_weather:.3f})"
-        )
-        edb.close()
-    finally:
-        os.unlink(path)
-
-
-# ──────────────────────────────────────────────
-# 5. Feedback DB
+# 4. Feedback DB
 # ──────────────────────────────────────────────
 
 def test_feedback_db_log_and_count():
@@ -300,7 +215,7 @@ def test_feedback_db_persistence():
 
 
 # ──────────────────────────────────────────────
-# 6. Pluggable scanner registry
+# 5. Pluggable scanner registry
 # ──────────────────────────────────────────────
 
 def test_basescanner_abc():
@@ -462,7 +377,7 @@ def test_pluggable_scanner_end_to_end():
 
 
 # ──────────────────────────────────────────────
-# 7. Stale-scan warning
+# 6. Stale-scan warning
 # ──────────────────────────────────────────────
 
 def _make_db_with_scanned_at(scanned_at_iso: str) -> "tuple[DB, str]":
@@ -633,7 +548,7 @@ def test_mcp_stale_warning_in_payload():
 
 
 # ──────────────────────────────────────────────
-# 8. Frontend REST scanner — file filter
+# 7. Frontend REST scanner — file filter
 # ──────────────────────────────────────────────
 
 def _make_frontend_rest_repo(tmp_dir: str, files: "list[tuple[str, str]]") -> str:
@@ -734,9 +649,8 @@ def test_rescan_missing_manifest_returns_error():
     with tempfile.TemporaryDirectory() as workspace:
         data_dir = os.path.join(workspace, ".ariadne")
         os.makedirs(data_dir)
-        original_db, original_emb = mcp_server._DB_PATH, mcp_server._EMB_PATH
+        original_db = mcp_server._DB_PATH
         mcp_server._DB_PATH = os.path.join(data_dir, "ariadne.db")
-        mcp_server._EMB_PATH = os.path.join(data_dir, "embeddings.db")
         try:
             result = asyncio.run(mcp_server._rescan())
             payload = _json.loads(result[0].text)
@@ -744,7 +658,6 @@ def test_rescan_missing_manifest_returns_error():
             assert "manifest" in payload["error"].lower()
         finally:
             mcp_server._DB_PATH = original_db
-            mcp_server._EMB_PATH = original_emb
 
 
 def test_rescan_refreshes_index_and_invalidates_cache():
@@ -777,10 +690,9 @@ def test_rescan_refreshes_index_and_invalidates_cache():
         data_dir = os.path.join(workspace, ".ariadne")
         os.makedirs(data_dir, exist_ok=True)
         db_path = os.path.join(data_dir, "ariadne.db")
-        emb_path = os.path.join(data_dir, "embeddings.db")
         manifest_path = os.path.join(data_dir, "manifest.json")
 
-        _main.run_scan_and_embed(config_path, db_path, emb_path)
+        _main.run_scan_and_embed(config_path, db_path)
         _write(manifest_path, _json.dumps({"config_path": config_path}))
 
         # Verify install-time state
@@ -789,9 +701,8 @@ def test_rescan_refreshes_index_and_invalidates_cache():
         assert nodes_before >= 1, "initial scan should find at least createOrder"
 
         # 4. Point mcp_server at this workspace and warm its DB cache
-        original_db, original_emb = mcp_server._DB_PATH, mcp_server._EMB_PATH
+        original_db = mcp_server._DB_PATH
         mcp_server._DB_PATH = db_path
-        mcp_server._EMB_PATH = emb_path
         mcp_server._reset_db_cache()
         try:
             cached_before = mcp_server._get_db(db_path)
@@ -818,7 +729,6 @@ def test_rescan_refreshes_index_and_invalidates_cache():
             assert cached_after.node_count() == payload["nodes"]
         finally:
             mcp_server._DB_PATH = original_db
-            mcp_server._EMB_PATH = original_emb
             mcp_server._reset_db_cache()
 
 
@@ -840,10 +750,6 @@ if __name__ == "__main__":
         test_same_service_lower_score,
         test_db_upsert_and_retrieve,
         test_db_edge,
-        test_embedding_db_upsert_and_retrieve,
-        test_embedding_db_stale_detection,
-        test_embedder_cosine,
-        test_build_and_recall_embeddings,
         test_feedback_db_log_and_count,
         test_feedback_db_persistence,
         test_basescanner_abc,

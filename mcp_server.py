@@ -36,7 +36,6 @@ from datetime import datetime, timezone
 _DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DB = os.path.join(_DIR, "ariadne.db")
 DEFAULT_FB = os.path.join(_DIR, "feedback.db")
-DEFAULT_EMB = os.path.join(_DIR, "embeddings.db")
 
 sys.path.insert(0, _DIR)
 
@@ -217,8 +216,8 @@ async def list_tools() -> list[Tool]:
                 "Refresh the Ariadne index from inside the conversation. Call this "
                 "when query_chains or expand_node returned a `stale_warning`, or "
                 "after you know the user's code has changed. Re-scans every repo "
-                "listed in the install-time ariadne.config.json, rebuilds embeddings "
-                "if nodes changed, and invalidates cached DB handles so the next "
+                "listed in the install-time ariadne.config.json, rebuilds TF-IDF "
+                "token edges, and invalidates cached DB handles so the next "
                 "query sees fresh data. No arguments; zero configuration."
             ),
             inputSchema={
@@ -326,7 +325,7 @@ async def _rescan() -> list[TextContent]:
 
     import main as _main
     try:
-        summary = _main.run_scan_and_embed(config_path, _DB_PATH, DEFAULT_EMB)
+        summary = _main.run_scan_and_embed(config_path, _DB_PATH)
     except SystemExit as e:
         return [TextContent(
             type="text",
@@ -451,7 +450,7 @@ WHAT IT DOES
 
 QUICK SETUP (for your own codebase)
   0. git clone https://github.com/whyy9527/ariadne.git && cd ariadne
-     pip install mcp onnxruntime tokenizers huggingface_hub
+     pip install mcp
   1. Create ariadne.config.json in your workspace:
        {{
          "repos": [
@@ -630,7 +629,6 @@ async def _rate_result(fdb, arguments: dict) -> list[TextContent]:
 
 _DB_PATH = DEFAULT_DB
 _FB_PATH = DEFAULT_FB
-_EMB_PATH = DEFAULT_EMB
 
 
 async def main():
@@ -645,6 +643,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     _DB_PATH = args.db
     _FB_PATH = args.fb
+
 
     _ensure_db(_DB_PATH)
     asyncio.run(main())

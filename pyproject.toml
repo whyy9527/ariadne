@@ -12,9 +12,6 @@ authors = [{ name = "whyy9527" }]
 requires-python = ">=3.10"
 dependencies = [
     "mcp",
-    "onnxruntime",
-    "tokenizers",
-    "huggingface_hub",
 ]
 
 [project.urls]
