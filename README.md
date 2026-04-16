@@ -291,18 +291,28 @@ Two-stage, `O(anchors × neighbours)`, independent of repo count.
 
 ### Embeddings
 
-TF-IDF is the primary recall channel. `bge-small-en-v1.5` (ONNX int8 quantized)
-is used for two narrow jobs:
+All embedding computation happens at **scan time** — query time has zero ML
+inference, making every query a pure SQLite read.
 
-- **Recall fallback**: when token overlap is weak, find synonyms (e.g.
-  `assignHomework` ↔ `assignStudentsToTask`) and add them to the anchor set.
-- **Reranking**: build `top_n × 2` clusters first, then re-sort by
-  `0.6 · confidence + 0.4 · max_cos(hint, cluster_nodes)` and truncate to
-  `top_n`.
+At scan, `bge-small-en-v1.5` (ONNX int8 quantized, ~34 MB) embeds every node
+name in batches of 64. The full pairwise cosine similarity matrix is then
+computed via numpy matrix multiply (`N × 384 @ 384 × N`). Node pairs with
+cosine ≥ 0.65 are written into the edges table as `semantic_score`, merged
+with token-based edges:
 
-The ONNX model is ~34 MB (int8 quantized) and runs on CPU via `onnxruntime`.
-Cold start ~0.3s. Vectors cached in `embeddings.db`; only the query hint
-is embedded at query time.
+```
+final_total = max(token_total, semantic_score * 0.85)
+```
+
+This catches cross-service connections that share no tokens but are
+semantically related (e.g. `assignHomework` ↔ `assignStudentsToTask`,
+`retrieveStreakInfo` ↔ `attendanceStreak`). Token edges remain the primary
+signal; semantic edges fill gaps where naming conventions diverge across
+services.
+
+At query time, the engine reads edges (both token and semantic) from SQLite —
+no model loading, no vector search, no ONNX runtime. Cold start is
+effectively zero.
 
 ### Feedback boost
 
