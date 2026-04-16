@@ -203,13 +203,14 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "name": {
                         "type": "string",
+                        "minLength": 2,
                         "description": (
                             "Node id or raw name (endpoint method, Kafka "
                             "topic, GraphQL operation, frontend call). "
                             "Case-insensitive substring match against both "
                             "id and raw_name. Prefer exact names copied from "
                             "a prior query_chains result to avoid ambiguity; "
-                            "very short strings (e.g. 'get') will match many "
+                            "short strings (e.g. 'get') will match many "
                             "nodes and only the first 3 are expanded."
                         )
                     }
@@ -589,7 +590,11 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
     stale_warning = _build_stale_warning(db)
 
     if not results:
-        payload = {"neighbors": [], "stale_warning": stale_warning}
+        payload = {
+            "neighbors": [],
+            "stale_warning": stale_warning,
+            "next_step": "No matches. Try an exact node name from a query_chains result, or call query_chains with a broader business term.",
+        }
         return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
     # Implicit feedback: if this expand_node name matches a node from a recent
@@ -625,7 +630,16 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
             except ValueError:
                 pass  # already removed (race within same process is impossible in asyncio, but be safe)
 
-    payload = {"neighbors": results, "stale_warning": stale_warning}
+    # Build next-step guidance based on state
+    if stale_warning:
+        next_step = "Index is stale — call rescan() first, then retry."
+    else:
+        next_step = (
+            "Read the source files listed in the neighbour nodes. "
+            "If results were misleading, call log_feedback(hint=<name>, accepted=false)."
+        )
+
+    payload = {"neighbors": results, "stale_warning": stale_warning, "next_step": next_step}
     return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
 
