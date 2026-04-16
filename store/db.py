@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS edges (
     field_score     REAL DEFAULT 0,
     role_score      REAL DEFAULT 0,
     service_score   REAL DEFAULT 0,
+    semantic_score  REAL DEFAULT 0,
     UNIQUE(source_id, target_id)
 );
 
@@ -80,18 +81,45 @@ class DB:
 
     def upsert_edge(self, source_id: str, target_id: str, scores: dict, total: float = None):
         if total is None:
-            total = sum(scores.values())
+            total = sum(v for k, v in scores.items() if k != "semantic_score")
         self.conn.execute("""
             INSERT OR REPLACE INTO edges
-              (source_id, target_id, total_score, name_score, field_score, role_score, service_score)
-            VALUES (?,?,?,?,?,?,?)
+              (source_id, target_id, total_score, name_score, field_score, role_score, service_score, semantic_score)
+            VALUES (?,?,?,?,?,?,?,?)
         """, (
             source_id, target_id, total,
             scores.get("name_score", 0),
             scores.get("field_score", 0),
             scores.get("role_score", 0),
             scores.get("service_score", 0),
+            scores.get("semantic_score", 0),
         ))
+
+    def get_edge(self, source_id: str, target_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM edges WHERE source_id=? AND target_id=?",
+            (source_id, target_id)
+        ).fetchone()
+        if row:
+            return dict(row)
+        # Also check reversed direction
+        row = self.conn.execute(
+            "SELECT * FROM edges WHERE source_id=? AND target_id=?",
+            (target_id, source_id)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def update_edge_semantic(self, source_id: str, target_id: str, semantic_score: float, new_total: float):
+        # Try both directions
+        affected = self.conn.execute(
+            "UPDATE edges SET semantic_score=?, total_score=? WHERE source_id=? AND target_id=?",
+            (semantic_score, new_total, source_id, target_id)
+        ).rowcount
+        if affected == 0:
+            self.conn.execute(
+                "UPDATE edges SET semantic_score=?, total_score=? WHERE source_id=? AND target_id=?",
+                (semantic_score, new_total, target_id, source_id)
+            )
 
     def insert_cluster(self, query_hint: str, confidence: float, node_ids: list[str]):
         self.conn.execute("""

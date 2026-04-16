@@ -94,7 +94,6 @@ app = Server("ariadne")
 # DB handles — initialised once at startup
 _db = None
 _fdb = None
-_edb = None
 
 # ── Implicit feedback: pending query cache ─────────────────────────────────────
 # Each entry: {"hint": str, "ts": float, "clusters": [{"rank": int, "node_names": set}]}
@@ -125,32 +124,11 @@ def _get_fdb(fb_path: str):
 
 def _reset_db_cache() -> None:
     """
-    Drop cached DB / embedding handles so the next tool call re-opens them
-    against the freshly rescanned files. Feedback DB is unaffected by rescan,
-    so it stays warm.
+    Drop cached DB handle so the next tool call re-opens it against the
+    freshly rescanned file. Feedback DB is unaffected by rescan, so it stays warm.
     """
-    global _db, _edb
+    global _db
     _db = None
-    _edb = None
-
-
-def _get_edb(emb_path: str, db):
-    """Lazy-load EmbeddingDB. Auto-builds if missing or stale (node count changed)."""
-    global _edb
-    if _edb is None:
-        from store.embedding_db import EmbeddingDB
-        _edb = EmbeddingDB(emb_path)
-
-    node_count = db.node_count()
-    if _edb.is_stale(node_count):
-        print(f"[ariadne] Embeddings stale (have {_edb.count()}, need {node_count}). "
-              "Building... (first time may take ~30s)", file=sys.stderr)
-        from scoring.embedder import build_embeddings
-        all_nodes = db.get_all_nodes()
-        n = build_embeddings(all_nodes, _edb)
-        print(f"[ariadne] Built {n} embeddings.", file=sys.stderr)
-
-    return _edb
 
 
 # ── Tool declarations ──────────────────────────────────────────────────────────
@@ -291,8 +269,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=_build_help_text())]
     elif name == "query_chains":
         db = _get_db(_DB_PATH)
-        edb = _get_edb(_EMB_PATH, db)
-        return await _query_chains(db, edb, arguments)
+        return await _query_chains(db, arguments)
     elif name == "expand_node":
         db = _get_db(_DB_PATH)
         return await _expand_node(db, arguments)
@@ -349,7 +326,7 @@ async def _rescan() -> list[TextContent]:
 
     import main as _main
     try:
-        summary = _main.run_scan_and_embed(config_path, _DB_PATH, _EMB_PATH)
+        summary = _main.run_scan_and_embed(config_path, _DB_PATH, DEFAULT_EMB)
     except SystemExit as e:
         return [TextContent(
             type="text",
@@ -404,21 +381,6 @@ def _detect_config_issues() -> list[str]:
             issues.append(stale.lstrip("⚠ ").strip())
     except Exception:
         pass
-
-    # Embeddings DB (optional, only a hint — not a hard failure)
-    if not os.path.exists(_EMB_PATH):
-        issues.append(
-            f"embeddings.db missing at {_EMB_PATH}. Semantic recall fallback "
-            "is disabled until the first query rebuilds it (~30s)."
-        )
-    else:
-        try:
-            from store.embedding_db import EmbeddingDB
-            edb = EmbeddingDB(_EMB_PATH)
-            if edb.count() == 0:
-                issues.append("embeddings.db exists but is empty.")
-        except Exception:
-            pass
 
     return issues
 
@@ -557,14 +519,14 @@ def _extract_cluster_node_names(results: list[dict]) -> list[dict]:
     return clusters
 
 
-async def _query_chains(db, edb, arguments: dict) -> list[TextContent]:
+async def _query_chains(db, arguments: dict) -> list[TextContent]:
     from query.query import query
 
     hint = arguments["hint"]
     top_n = int(arguments.get("top_n", 3))
     fdb = _get_fdb(_FB_PATH)
 
-    results = query(db, hint, top_n=top_n, edb=edb, fdb=fdb)
+    results = query(db, hint, top_n=top_n, fdb=fdb)
 
     stale_warning = _build_stale_warning(db)
 
@@ -680,11 +642,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ariadne MCP Server")
     parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
     parser.add_argument("--fb", default=DEFAULT_FB, help="Feedback DB path")
-    parser.add_argument("--emb", default=DEFAULT_EMB, help="Embeddings DB path")
     args = parser.parse_args()
     _DB_PATH = args.db
     _FB_PATH = args.fb
-    _EMB_PATH = args.emb
 
     _ensure_db(_DB_PATH)
     asyncio.run(main())

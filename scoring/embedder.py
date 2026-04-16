@@ -8,7 +8,6 @@ to supplement TF-IDF anchors with semantically similar nodes.
 Runtime: onnxruntime + tokenizers (Rust). No PyTorch / sentence-transformers.
 Cold start: ~0.3s (was ~13s with sentence-transformers + torch).
 """
-import math
 import os
 import sys
 
@@ -126,19 +125,11 @@ def embed_one(text: str) -> list[float]:
     return embed_texts([text])[0]
 
 
-def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(x * x for x in b))
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
-
-
-def build_embeddings(nodes: list[dict], edb) -> int:
+def build_embeddings(nodes: list[dict], edb, batch_size: int = 64) -> int:
     """
     Embed all nodes and store in EmbeddingDB. Returns count written.
     node text = raw_name + space-joined tokens (gives model camelCase + split tokens).
+    Processes in batches of batch_size to avoid memory issues with large corpora.
     """
     texts = []
     ids = []
@@ -152,66 +143,41 @@ def build_embeddings(nodes: list[dict], edb) -> int:
     if not texts:
         return 0
 
-    vecs = embed_texts(texts)
-    for nid, vec in zip(ids, vecs):
-        edb.upsert(nid, vec)
+    total = len(texts)
+    written = 0
+    for start in range(0, total, batch_size):
+        batch_texts = texts[start:start + batch_size]
+        batch_ids = ids[start:start + batch_size]
+        vecs = embed_texts(batch_texts)
+        for nid, vec in zip(batch_ids, vecs):
+            edb.upsert(nid, vec)
+        written += len(batch_ids)
+
     edb.commit()
-    return len(ids)
+    return written
 
 
-def rerank_clusters(hint: str, clusters: list[dict], node_map: dict, edb,
-                    blend: float = 0.4) -> list[dict]:
+def compute_semantic_edges(edb, threshold: float = 0.65) -> list[tuple[str, str, float]]:
     """
-    Rerank IR-produced clusters by blending in embedding similarity.
-    For each cluster, take max cosine(hint, node) across its nodes, then:
-        final = (1 - blend) * confidence + blend * max_cos
-    Returns clusters sorted by final desc. Mutates cluster dicts to add
-    'embed_score' and 'final_score'.
-    """
-    all_vecs = edb.get_all()
-    if not all_vecs or not clusters:
-        return clusters
-
-    hint_vec = embed_one(hint)
-
-    for c in clusters:
-        max_cos = 0.0
-        for nid in c.get("node_ids", []):
-            vec = all_vecs.get(nid)
-            if vec is None:
-                continue
-            s = cosine(hint_vec, vec)
-            if s > max_cos:
-                max_cos = s
-        c["embed_score"] = round(max_cos, 4)
-        c["final_score"] = round(
-            (1 - blend) * c.get("confidence", 0.0) + blend * max_cos, 4
-        )
-
-    clusters.sort(key=lambda c: -c.get("final_score", 0.0))
-    return clusters
-
-
-def recall_by_embedding(hint: str, nodes: list[dict], edb,
-                        top_k: int = 15, threshold: float = 0.5) -> list[dict]:
-    """
-    Embed hint, compute cosine similarity against all stored node vectors,
-    return top_k nodes above threshold as supplemental anchors.
+    Compute pairwise cosine similarity between all node embeddings using numpy matrix multiply.
+    Returns list of (node_id_a, node_id_b, cosine_score) for pairs above threshold.
+    Vectors are already L2-normalized, so cosine = dot product.
     """
     all_vecs = edb.get_all()
     if not all_vecs:
         return []
 
-    hint_vec = embed_one(hint)
+    import numpy as np
+    ids = list(all_vecs.keys())
+    matrix = np.array([all_vecs[nid] for nid in ids], dtype=np.float32)
+    # Vectors are already L2-normalized, so cosine = dot product
+    sim_matrix = matrix @ matrix.T
 
-    node_map = {n["id"]: n for n in nodes}
-    scores = []
-    for nid, vec in all_vecs.items():
-        if nid not in node_map:
-            continue
-        s = cosine(hint_vec, vec)
-        if s >= threshold:
-            scores.append((nid, s))
-
-    scores.sort(key=lambda x: -x[1])
-    return [node_map[nid] for nid, _ in scores[:top_k]]
+    edges = []
+    n = len(ids)
+    for i in range(n):
+        for j in range(i + 1, n):
+            score = float(sim_matrix[i, j])
+            if score >= threshold:
+                edges.append((ids[i], ids[j], score))
+    return edges

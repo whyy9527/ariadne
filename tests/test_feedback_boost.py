@@ -210,7 +210,7 @@ def _run_query_with_boost_flag(fdb, flag_value: str) -> list[dict]:
     with mock.patch("query.query.find_anchors", return_value=[]), \
          mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
          mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": flag_value}):
-        results = q(fake_db, "createOrder", top_n=3, edb=None, fdb=fdb)
+        results = q(fake_db, "createOrder", top_n=3, fdb=fdb)
     return results
 
 
@@ -278,7 +278,7 @@ def test_no_feedback_no_crash():
         with mock.patch("query.query.find_anchors", return_value=[]), \
              mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
              mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": "1"}):
-            results = q(fake_db, "createOrder", top_n=3, edb=None, fdb=fdb)
+            results = q(fake_db, "createOrder", top_n=3, fdb=fdb)
 
         # Should return results without raising
         assert isinstance(results, list)
@@ -301,7 +301,7 @@ def test_fdb_none_no_crash():
     with mock.patch("query.query.find_anchors", return_value=[]), \
          mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
          mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": "1"}):
-        results = q(fake_db, "createOrder", top_n=3, edb=None, fdb=None)
+        results = q(fake_db, "createOrder", top_n=3, fdb=None)
 
     assert isinstance(results, list)
 

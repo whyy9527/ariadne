@@ -185,7 +185,7 @@ def cmd_scan(args):
         sys.exit(1)
 
     mode = "FULL rescan" if force else "incremental"
-    print(f"[1/5] Scanning {len(repos)} repos ({mode}; config: {cfg_path}) ...")
+    print(f"[1/6] Scanning {len(repos)} repos ({mode}; config: {cfg_path}) ...")
 
     enriched: list[dict] = []
     any_rescanned = False
@@ -270,12 +270,12 @@ def cmd_scan(args):
         sys.exit(1)
 
     if not any_rescanned:
-        print(f"\n[2/5] All repos unchanged — skipping normalize/IDF/scoring.")
-        print(f"[5/5] Done. DB: {args.db}")
+        print(f"\n[2/6] All repos unchanged — skipping normalize/IDF/scoring/embedding.")
+        print(f"Done. DB: {args.db}")
         print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
         return
 
-    print(f"\n[2/5] Normalizing — {len(enriched)} nodes total")
+    print(f"\n[2/6] Normalizing — {len(enriched)} nodes total")
     # Re-normalize reused nodes too so IDF sees consistent token lists.
     for node in enriched:
         if not node.get("tokens") or not node.get("field_tokens"):
@@ -283,7 +283,7 @@ def cmd_scan(args):
             node["tokens"] = norm["tokens"]
             node["field_tokens"] = norm["field_tokens"]
 
-    print("[3/5] Computing TF-IDF weights...")
+    print("[3/6] Computing TF-IDF weights...")
     idf = compute_idf(enriched)
     db.upsert_token_idf(idf)
     db.commit()
@@ -291,7 +291,7 @@ def cmd_scan(args):
     top_common = sorted(idf.items(), key=lambda x: x[1])[:8]
     print(f"  Most common (dampened): {[t for t,_ in top_common]}")
 
-    print("[4/5] Scoring pairs (full re-score — edges depend on global IDF)...")
+    print("[4/6] Scoring pairs (full re-score — edges depend on global IDF)...")
     db.delete_all_edges()
     edges = score_all_pairs(enriched, min_score=0.12)
     print(f"  Generated {len(edges)} edges above threshold")
@@ -300,31 +300,44 @@ def cmd_scan(args):
         db.upsert_edge(src_id, tgt_id, scores, total)
     db.commit()
 
-    print(f"[5/5] Done. DB: {args.db}")
+    from store.embedding_db import EmbeddingDB
+    from scoring.embedder import build_embeddings, compute_semantic_edges
+
+    emb_path = getattr(args, "emb", DEFAULT_EMB)
+    edb = EmbeddingDB(emb_path)
+    print(f"[5/6] Building embeddings...")
+    n_emb = build_embeddings(enriched, edb)
+    print(f"  Embedded {n_emb} nodes")
+
+    print("[6/6] Computing semantic edges...")
+    sem_edges = compute_semantic_edges(edb, threshold=0.65)
+    new_count = 0
+    updated_count = 0
+    for src, tgt, sem_score in sem_edges:
+        existing = db.get_edge(src, tgt)
+        if existing:
+            new_total = max(existing["total_score"], sem_score * 0.85)
+            db.update_edge_semantic(src, tgt, sem_score, new_total)
+            updated_count += 1
+        else:
+            db.upsert_edge(src, tgt, {"semantic_score": sem_score}, total=sem_score * 0.85)
+            new_count += 1
+    db.commit()
+    print(f"  {len(sem_edges)} semantic pairs: {new_count} new edges, {updated_count} updated")
+
+    print(f"Done. DB: {args.db}")
     print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
 
 
 def cmd_query(args):
     from store.db import DB
-    from store.embedding_db import EmbeddingDB
-    from scoring.embedder import build_embeddings
     from query.query import query, print_results
 
     db = DB(args.db)
     _stale_warning(db, args)
-    edb = EmbeddingDB(args.emb)
-    node_count = db.node_count()
-    if edb.is_stale(node_count):
-        print(
-            f"[ariadne] Building embeddings for {node_count} nodes (first run ~30s)...",
-            file=sys.stderr,
-        )
-        build_embeddings(db.get_all_nodes(), edb)
-        print("[ariadne] Embeddings ready.", file=sys.stderr)
-
     hint = " ".join(args.hint)
     print(f"\nQuery: {hint}\n" + "=" * 50)
-    results = query(db, hint, top_n=args.top, edb=edb)
+    results = query(db, hint, top_n=args.top)
     print_results(results)
 
 
@@ -347,26 +360,19 @@ MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
 
 def run_scan_and_embed(config_path: str, db_path: str, emb_path: str, force: bool = False) -> dict:
     """
-    Shared worker: scan + rebuild embeddings. Used by both `install` (first-time
-    setup) and the MCP `rescan` tool (in-conversation refresh). Returns a summary
-    dict {nodes, duration_ms} — no stdout assumptions, no sys.exit.
+    Shared worker: scan (which now includes embedding computation at scan time).
+    Used by both `install` (first-time setup) and the MCP `rescan` tool.
+    Returns a summary dict {nodes, duration_ms} — no stdout assumptions, no sys.exit.
     """
     import time
     t0 = time.monotonic()
 
-    scan_args = argparse.Namespace(config=config_path, db=db_path, force=force)
+    scan_args = argparse.Namespace(config=config_path, db=db_path, emb=emb_path, force=force)
     cmd_scan(scan_args)
 
     from store.db import DB as _DB
-    from store.embedding_db import EmbeddingDB
-    from scoring.embedder import build_embeddings, _get_session
-
     _db = _DB(db_path)
-    edb = EmbeddingDB(emb_path)
     n_nodes = _db.node_count()
-    _get_session()
-    if edb.is_stale(n_nodes):
-        build_embeddings(_db.get_all_nodes(), edb)
 
     return {
         "nodes": n_nodes,
@@ -425,7 +431,7 @@ def cmd_install(args):
     servers = cfg.setdefault("mcpServers", {})
     servers["ariadne"] = {
         "command": "python3",
-        "args": [MCP_SERVER_PATH, "--db", db_path, "--emb", emb_path, "--fb", fb_path],
+        "args": [MCP_SERVER_PATH, "--db", db_path, "--fb", fb_path],
     }
     with open(mcp_json, "w") as f:
         json.dump(cfg, f, indent=2)

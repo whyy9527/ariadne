@@ -13,12 +13,13 @@ from scoring.engine import build_clusters, find_anchors
 _BOOST_ALPHA = 0.15
 
 
-def query(db, hint: str, top_n: int = 5, edb=None, fdb=None) -> list[dict]:
+def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
     """
     Input: business word OR endpoint/topic name.
     Output: list of cluster dicts with enriched node info.
 
-    edb: optional EmbeddingDB for embedding-based anchor supplementation.
+    Pure SQLite read — no ML inference at query time.
+    Semantic similarity is pre-computed at scan time and stored as edge weights.
     """
     from scoring.engine import set_idf
     idf = db.get_token_idf()
@@ -31,29 +32,13 @@ def query(db, hint: str, top_n: int = 5, edb=None, fdb=None) -> list[dict]:
     # This scales with anchor count (~30), not corpus size — no magic limit needed.
     anchors = find_anchors(all_nodes, hint)
 
-    # Supplement with embedding recall if available
-    if edb is not None:
-        from scoring.embedder import recall_by_embedding
-        embed_anchors = recall_by_embedding(hint, all_nodes, edb)
-        anchor_ids_set = {a["id"] for a in anchors}
-        extra = [n for n in embed_anchors if n["id"] not in anchor_ids_set]
-        anchors = anchors + extra[:10]
-
     anchor_ids = [a["id"] for a in anchors]
     anchor_edges = db.get_edges_for_nodes(anchor_ids, min_score=0.25)
 
-    # Build top_n * 2 clusters so embedding rerank has room to reshuffle.
-    build_n = top_n * 2 if edb is not None else top_n
     clusters = build_clusters(all_nodes, anchor_edges, query_hint=hint,
-                              anchors=anchors, top_n=build_n)
+                              anchors=anchors, top_n=top_n)
 
     node_map = {n["id"]: n for n in all_nodes}
-
-    # Embedding rerank: blend IR confidence with hint↔cluster cosine similarity.
-    if edb is not None and clusters:
-        from scoring.embedder import rerank_clusters
-        rerank_clusters(hint, clusters, node_map, edb)
-        clusters = clusters[:top_n]
 
     # Feedback boost rerank: lift clusters whose node_ids were historically accepted.
     # Controlled by ARIADNE_FEEDBACK_BOOST env var (default: enabled).

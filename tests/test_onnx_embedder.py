@@ -131,13 +131,13 @@ def test_top1_neighbor_consistency():
 
 def test_cosine_range():
     """Cosines between distinct texts should be in [0, 1] for normalized vecs."""
-    from scoring.embedder import embed_texts, cosine
+    from scoring.embedder import embed_texts
 
     texts = ["createOrder", "kafkaConsumer", "userProfile"]
     vecs = embed_texts(texts)
     for i in range(len(texts)):
         for j in range(i + 1, len(texts)):
-            c = cosine(vecs[i], vecs[j])
+            c = _cosine(vecs[i], vecs[j])
             assert 0.0 <= c <= 1.0, f"cosine({texts[i]}, {texts[j]}) = {c} out of [0,1]"
     print("  cosine_range: PASS")
 
