@@ -245,22 +245,30 @@ Python 3.10. MCP is still the recommended path.
 ariadne/
 ├── scanner/       # per-framework extractors → node dicts
 ├── normalizer/    # camelCase/snake/kebab → tokens
-├── scoring/       # IDF-Jaccard engine + bge-small embedder
+├── scoring/
+│   ├── engine.py  # TF-IDF + IDF-Jaccard → token edges
+│   └── embedder.py # bge-small ONNX → semantic edges
 ├── store/         # SQLite: ariadne.db / embeddings.db / feedback.db
-├── query/         # query / expand entry points
+├── query/         # query / expand — pure SQLite reads, zero ML
 ├── mcp_server.py  # MCP stdio server
-├── main.py        # CLI
+├── main.py        # CLI + scan orchestration
 └── tests/         # pytest suite
 ```
 
-### Scoring
+### Scoring — dual-track, merge at scan time
 
-The math is information retrieval, not graph theory. Node names are tokenized
-(`createOrder` → `["create", "order"]`) and compared with IDF-weighted Jaccard:
+Two independent scoring pipelines run at scan time and merge into a single
+`edges` table. Query time reads edges uniformly — it does not know or care
+which pipeline produced them.
+
+**Track 1 — Token edges** (`scoring/engine.py`)
+
+Information retrieval on tokenized node names. `createOrder` →
+`["create", "order"]`, compared via IDF-weighted Jaccard:
 
 ```
 idf_jaccard(A, B) = Σ idf(t)  (t ∈ A ∩ B)  /  Σ idf(t)  (t ∈ A ∪ B)
-idf(t)           = log(N / df(t))
+idf(t)            = log(N / df(t))
 ```
 
 Rare tokens dominate; high-frequency domain words (`task`, `id`, `service`)
@@ -268,13 +276,29 @@ self-dampen, no stopword list needed.
 
 ```
 base  = idf_jaccard(name) * 0.55 + idf_jaccard(fields) * 0.45
-score = min(base * role_mult * service_mult, 1.0)
+token_total = min(base * role_mult * service_mult, 1.0)
 
 role_mult    = 1.3   for complementary pairs
                      (GraphQL Mutation ↔ Kafka topic ↔ HTTP POST,
                       GraphQL Query ↔ Cube Query ↔ HTTP GET)
 service_mult = 1.25  cross-service / 0.8 same-service
 ```
+
+**Track 2 — Semantic edges** (`scoring/embedder.py`)
+
+`bge-small-en-v1.5` (ONNX int8, ~34 MB) embeds every node name in batches
+of 64. Full pairwise cosine similarity via numpy matrix multiply
+(`N × 384 @ 384 × N`). Pairs with cosine ≥ 0.65 produce semantic edges.
+
+**Merge rule** — for each node pair, the final edge score is:
+
+```
+total_score = max(token_total, semantic_score * 0.85)
+```
+
+Token edges stay dominant where naming conventions align. Semantic edges
+fill the gap where services use different words for the same concept
+(`assignHomework` ↔ `assignStudentsToTask`).
 
 ### Clustering
 
@@ -289,30 +313,11 @@ Two-stage, `O(anchors × neighbours)`, independent of repo count.
 5. Confidence = mean edge score · 0.6 + type diversity · 0.2 + service
    diversity · 0.2.
 
-### Embeddings
+### Query-time guarantee
 
-All embedding computation happens at **scan time** — query time has zero ML
-inference, making every query a pure SQLite read.
-
-At scan, `bge-small-en-v1.5` (ONNX int8 quantized, ~34 MB) embeds every node
-name in batches of 64. The full pairwise cosine similarity matrix is then
-computed via numpy matrix multiply (`N × 384 @ 384 × N`). Node pairs with
-cosine ≥ 0.65 are written into the edges table as `semantic_score`, merged
-with token-based edges:
-
-```
-final_total = max(token_total, semantic_score * 0.85)
-```
-
-This catches cross-service connections that share no tokens but are
-semantically related (e.g. `assignHomework` ↔ `assignStudentsToTask`,
-`retrieveStreakInfo` ↔ `attendanceStreak`). Token edges remain the primary
-signal; semantic edges fill gaps where naming conventions diverge across
-services.
-
-At query time, the engine reads edges (both token and semantic) from SQLite —
-no model loading, no vector search, no ONNX runtime. Cold start is
-effectively zero.
+Zero ML inference at query time. The query engine reads pre-computed edges
+from SQLite — no model loading, no vector search, no ONNX runtime.
+Cold start is effectively zero.
 
 ### Feedback boost
 
