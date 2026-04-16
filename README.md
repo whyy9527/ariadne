@@ -83,7 +83,7 @@ The intended workflow when an AI assistant drives Ariadne via the MCP server.
 
 3. Read the files the returned clusters / neighbours point at.
 
-4. log_feedback(hint, accepted=False, ...)
+4. rate_result(hint, accepted=False, ...)
      → manual thumbs-down only. Positive feedback is captured in step 2.
 ```
 
@@ -116,8 +116,8 @@ What the assistant sees once `install` is done and Claude Code is restarted:
 | `query_chains` | `hint`, `top_n` (default 3)           | Business term → cross-service clusters |
 | `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
 | `rescan`       | *(none)*                              | Refresh the index in place when a response has a `stale_warning`; git-hash incremental, returns `{nodes, duration_ms}` |
-| `ariadne_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
-| `log_feedback` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see *Feedback boost* under Architecture) |
+| `show_help` | *(none)*                              | Setup guide + runtime config diagnostics (missing DB, empty index, stale scan) |
+| `rate_result` | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit — see *Feedback boost* under Architecture) |
 
 ---
 
@@ -311,7 +311,7 @@ training, no uploads. `feedback.db` is local per developer.
 Every `query_chains` call caches returned clusters for 10 minutes. A follow-up
 `expand_node(name)` that substring-matches a node in a pending cluster
 auto-writes an `accepted=True` row — the expand IS the signal.
-`log_feedback(hint, accepted, ...)` is the manual escape hatch for thumbs-down.
+`rate_result(hint, accepted, ...)` is the manual escape hatch for thumbs-down.
 
 On the next `query()` for the same hint:
 

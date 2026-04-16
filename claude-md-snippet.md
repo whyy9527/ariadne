@@ -22,10 +22,10 @@ For any task involving business features, API calls, or cross-service flows, **q
 
 ### Feedback protocol
 
-After using each Ariadne result, call `log_feedback` to mark whether it helped:
+After using each Ariadne result, call `rate_result` to mark whether it helped:
 
 ```
-log_feedback(hint="...", cluster_rank=1, node_ids=[...], accepted=true/false)
+rate_result(hint="...", cluster_rank=1, node_ids=[...], accepted=true/false)
 ```
 
 - `accepted=true`: result helped locate files / understand the chain

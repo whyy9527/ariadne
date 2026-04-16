@@ -2,10 +2,12 @@
 """
 Ariadne MCP Server
 
-Exposes three tools to AI assistants (Claude Code, Cursor, etc.):
+Exposes five tools to AI assistants (Claude Code, Cursor, etc.):
   - query_chains:  business term → cross-service chain clusters
   - expand_node:   node name → direct neighbors with scores
-  - log_feedback:  record whether results were useful (writes to feedback.db)
+  - rate_result:   record whether results were useful (writes to feedback.db)
+  - rescan:        refresh index from source repos
+  - show_help:     setup and usage guide
 
 Usage (stdio transport):
   python3 mcp_server.py [--db PATH] [--fb PATH]
@@ -219,7 +221,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="ariadne_help",
+            name="show_help",
             description=(
                 "Return a quick setup and usage guide for Ariadne. Call this first "
                 "when you are unsure how to use Ariadne, how to index your own "
@@ -247,7 +249,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="log_feedback",
+            name="rate_result",
             description=(
                 "Record whether Ariadne results were useful. Call this after using "
                 "query_chains or expand_node to log feedback for future improvement. "
@@ -285,7 +287,7 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "ariadne_help":
+    if name == "show_help":
         return [TextContent(type="text", text=_build_help_text())]
     elif name == "query_chains":
         db = _get_db(_DB_PATH)
@@ -294,9 +296,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "expand_node":
         db = _get_db(_DB_PATH)
         return await _expand_node(db, arguments)
-    elif name == "log_feedback":
+    elif name == "rate_result":
         fdb = _get_fdb(_FB_PATH)
-        return await _log_feedback(fdb, arguments)
+        return await _rate_result(fdb, arguments)
     elif name == "rescan":
         return await _rescan()
     else:
@@ -365,7 +367,7 @@ async def _rescan() -> list[TextContent]:
 
 def _detect_config_issues() -> list[str]:
     """
-    Runtime config/state sanity checks for ariadne_help.
+    Runtime config/state sanity checks for show_help.
 
     Returns a list of short human-readable issue strings. Empty list means
     everything looks healthy. Never raises — a broken help tool is worse than
@@ -436,9 +438,9 @@ Golden path — driving Ariadne from an AI conversation:
 
   3. Read the files the returned clusters / neighbours point at.
 
-  4. log_feedback(hint, accepted=False, ...) ONLY when a result was
+  4. rate_result(hint, accepted=False, ...) ONLY when a result was
      misleading. Most feedback is captured implicitly in step 2;
-     log_feedback is the manual escape hatch for thumbs-down.
+     rate_result is the manual escape hatch for thumbs-down.
 
   Staleness: if query_chains or expand_node return a non-null
   `stale_warning` field, call rescan() once — it re-scans the repos
@@ -636,14 +638,14 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
     else:
         next_step = (
             "Read the source files listed in the neighbour nodes. "
-            "If results were misleading, call log_feedback(hint=<name>, accepted=false)."
+            "If results were misleading, call rate_result(hint=<name>, accepted=false)."
         )
 
     payload = {"neighbors": results, "stale_warning": stale_warning, "next_step": next_step}
     return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
 
-async def _log_feedback(fdb, arguments: dict) -> list[TextContent]:
+async def _rate_result(fdb, arguments: dict) -> list[TextContent]:
     hint = arguments["hint"]
     cluster_rank = int(arguments.get("cluster_rank", 1))
     node_ids = arguments.get("node_ids", [])
