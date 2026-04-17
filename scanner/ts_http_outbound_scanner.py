@@ -170,12 +170,6 @@ def _scan_file(
             path=None,
         ))
 
-    if nodes:
-        # Already captured via DS class pattern; skip per-call scan for this
-        # file to avoid double-counting (each DS class = one node per endpoint
-        # type, not per call).
-        return nodes
-
     # --- 2. axios calls ---
     for m in _AXIOS_CALL.finditer(text):
         http_method = m.group(1).upper()
