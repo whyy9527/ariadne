@@ -6,8 +6,10 @@ Detects:
        this.baseURL = settings.<key>.host
        this.setBaseURL(settings.<key>.host)
        baseURL = settings.<key>.host  (property initializer)
-     → resolves settings key to a service via `settings_key_map` config option
-       (e.g. {"api": "falcon", "nezha": "nezha", "userService": "user-service"})
+     → resolves settings key to a service via `settings_key_map` config option.
+       Zero-config fallback: key itself == service name (e.g. "nezha" → "nezha").
+       Override only when the key doesn't match the service name
+       (e.g. {"userService": "user-service", "intellectualTutoringService": "its"}).
 
   2. Direct fetch / axios calls:
        axios.get('/path' | url_var)   — method-form
@@ -29,24 +31,19 @@ target get to_service=null — still discoverable by name.
 Config example (in ariadne.config.json):
   {
     "type": "ts_http_outbound",
-    "settings_key_map": {
-      "api": "falcon",
-      "nezha": "nezha",
-      "fuxi": "fuxi",
-      "userService": "user-service",
-      "intellectualTutoringService": "its",
-      "queryService": "query-service"
-    },
-    "url_prefix_map": {
-      "http://falcon": "falcon",
-      "http://nezha": "nezha"
-    },
+    "_comment": "settings_key_map: empty = use key as service name; add overrides only when key != service (e.g. userService→user-service)",
+    "settings_key_map": {},
+    "url_prefix_map": {},
     "client_name_map": {}
   }
 """
+import logging
 import re
 from pathlib import Path
 from scanner import BaseScanner
+
+# Module-level set so each fallback settings key logs only once per process run
+_logged_fallback_keys: set[str] = set()
 
 
 class TsHttpOutboundScanner(BaseScanner):
@@ -188,7 +185,7 @@ def _scan_file(
     # files with multiple DS classes attribute each baseURL to the right class.
     for m in _SETTINGS_BASE_URL.finditer(text):
         settings_key = m.group(1)
-        target_service = settings_key_map.get(settings_key) or None
+        target_service = _resolve_settings_key(settings_key, settings_key_map, service)
         cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
             service=service,
@@ -278,6 +275,26 @@ def _make_node(
         "method": method,
         "path": path,
     }
+
+
+def _resolve_settings_key(settings_key: str, settings_key_map: dict, service: str) -> str:
+    """Resolve a settings key to a target service.
+
+    Lookup order:
+      1. Explicit entry in settings_key_map (override/correction layer).
+      2. Zero-config fallback: key itself == service name (logs once per key).
+    """
+    if settings_key in settings_key_map:
+        return settings_key_map[settings_key]
+    global _logged_fallback_keys
+    if settings_key not in _logged_fallback_keys:
+        _logged_fallback_keys.add(settings_key)
+        logging.info(
+            "ts_http_outbound[%s]: no settings_key_map entry for '%s' — "
+            "defaulting target_service='%s'. Add to settings_key_map to override.",
+            service, settings_key, settings_key,
+        )
+    return settings_key
 
 
 def _resolve_url(url: str, url_prefix_map: dict) -> str | None:
