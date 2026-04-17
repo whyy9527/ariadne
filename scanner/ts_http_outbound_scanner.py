@@ -195,9 +195,10 @@ def _scan_file(
         http_method = m.group(1).upper()
         url_or_path = m.group(3) or ""
         target_service = _resolve_url(url_or_path, url_prefix_map)
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
             service=service,
-            name=f"{fallback_class_name}.{m.group(1).lower()}",
+            name=f"{cls}.{m.group(1).lower()}",
             target_service=target_service,
             source_file=source_file,
             method=http_method,
@@ -208,9 +209,10 @@ def _scan_file(
     for m in _FETCH_CALL.finditer(text):
         url = m.group(1)
         target_service = _resolve_url(url, url_prefix_map)
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
             service=service,
-            name=f"{fallback_class_name}.fetch",
+            name=f"{cls}.fetch",
             target_service=target_service,
             source_file=source_file,
             method="GET",
@@ -219,11 +221,12 @@ def _scan_file(
 
     # --- 4. typed client instantiation ---
     for m in _CLIENT_INSTANTIATION.finditer(text):
-        cls = m.group(1)
-        target_service = _resolve_client(cls, client_name_map)
+        client_cls = m.group(1)
+        target_service = _resolve_client(client_cls, client_name_map)
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
             service=service,
-            name=cls,
+            name=f"{cls}.{client_cls}",
             target_service=target_service,
             source_file=source_file,
             method=None,
