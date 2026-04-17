@@ -6,12 +6,17 @@ Detects:
   + pathSegment("seg1", "seg2", ...) or uri("path")
 
 Reconstructs the path from pathSegment chains. The target service is inferred
-from the client class name using a caller-supplied substring → service map
-(see `client_target_map` kwarg, configured per-repo in ariadne.config.json).
+from the client directory name (e.g. client/fuxi/ → fuxi) using a zero-config
+fallback: dirname == target_service. Override via `client_target_map` when the
+repo violates that convention (e.g. {"aiadapter": "ai-adapter"}).
 """
+import logging
 import re
 from pathlib import Path
 from scanner import BaseScanner
+
+# Module-level set so each fallback dirname logs only once per process run
+_logged_fallback_dirnames: set[str] = set()
 
 
 class BackendClientScanner(BaseScanner):
@@ -45,18 +50,32 @@ def scan_backend_clients(
             text = fpath.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        target_svc = _infer_target(fpath.stem, target_map)
+        dirname = fpath.parent.name
+        target_svc = _infer_target(fpath.stem, dirname, target_map, service)
         nodes.extend(_parse_client(text, service, target_svc, str(fpath)))
 
     return nodes
 
 
-def _infer_target(class_name: str, target_map: dict) -> str:
+def _infer_target(class_name: str, dirname: str, target_map: dict, service: str) -> str:
+    # 1. Exact dirname lookup (primary, zero-config path)
+    if dirname in target_map:
+        return target_map[dirname]
+    # 2. Class-name substring match (legacy fallback for non-standard layouts)
     lower = class_name.lower()
     for key, svc in target_map.items():
         if key.lower() in lower:
             return svc
-    return "external"
+    # 3. Zero-config: dirname == target_service (logs once per dirname)
+    global _logged_fallback_dirnames
+    if dirname not in _logged_fallback_dirnames:
+        _logged_fallback_dirnames.add(dirname)
+        logging.info(
+            "backend_clients[%s]: no client_target_map entry for '%s' — "
+            "defaulting target_service='%s'. Add to client_target_map to override.",
+            service, dirname, dirname,
+        )
+    return dirname
 
 
 def _parse_client(text: str, caller_service: str, target_service: str, source_file: str) -> list[dict]:

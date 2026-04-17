@@ -15,10 +15,8 @@
         "kafka",
         {
           "type": "backend_clients",
-          "client_target_map": {
-            "billing": "billing-svc",
-            "user": "user-svc"
-          }
+          "_comment": "client_target_map: leave empty for zero-config (dirname == service name). Add overrides only when the client/<dirname>/ folder name doesn't match the target service repo name. Example: if your client folder is 'ai/' but the service is 'ai-adapter', add {\"ai\": \"ai-adapter\"}.",
+          "client_target_map": {}
         }
       ]
     },
@@ -53,20 +51,10 @@
         "graphql",
         {
           "type": "ts_http_outbound",
-          "_comment": "Maps Apollo RESTDataSource settings keys and URL prefixes to target services. settings_key_map keys match the settings object property (e.g. settings.api.host → 'api'). url_prefix_map matches fetch/axios URL prefixes. client_name_map matches TypeScript client class name substrings.",
-          "settings_key_map": {
-            "api": "orders-svc",
-            "billingService": "billing-svc",
-            "userService": "user-svc"
-          },
-          "url_prefix_map": {
-            "http://orders-svc": "orders-svc",
-            "http://billing-svc": "billing-svc"
-          },
-          "client_name_map": {
-            "OrdersClient": "orders-svc",
-            "BillingClient": "billing-svc"
-          }
+          "_comment": "settings_key_map: leave empty for zero-config (settings key == service name). Add overrides only when the key in settings.<key>.host doesn't match the target service repo name. Example: 'userService' key → 'user-service' repo, or 'intellectualTutoringService' → 'its'. url_prefix_map and client_name_map have no zero-config fallback — populate them when fetch/axios URLs or client class names are used.",
+          "settings_key_map": {},
+          "url_prefix_map": {},
+          "client_name_map": {}
         }
       ]
     }

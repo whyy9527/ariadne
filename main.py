@@ -236,7 +236,7 @@ def cmd_scan(args):
                 sc_name, sc_opts = sc, {}
             else:
                 sc_name = sc.get("type")
-                sc_opts = {k: v for k, v in sc.items() if k != "type"}
+                sc_opts = {k: v for k, v in sc.items() if k != "type" and not k.startswith("_")}
             try:
                 fn, _ = _resolve_scanner(sc_name, sc_opts)
             except ValueError as exc:
@@ -515,7 +515,7 @@ def cmd_config_validate(args):
                 sc_name, sc_opts = sc, {}
             elif isinstance(sc, dict):
                 sc_name = sc.get("type")
-                sc_opts = {k: v for k, v in sc.items() if k != "type"}
+                sc_opts = {k: v for k, v in sc.items() if k != "type" and not k.startswith("_")}
                 if not sc_name:
                     errors.append(f"{sc_loc}: missing `type`")
                     continue
