@@ -294,7 +294,9 @@ def cmd_scan(args):
 
     print("[4/4] Scoring pairs (full re-score — edges depend on global IDF)...")
     db.delete_all_edges()
-    edges = score_all_pairs(enriched, min_score=0.12)
+    bff_services_list = cfg.get("bff_services")
+    bff_services = set(bff_services_list) if bff_services_list else None
+    edges = score_all_pairs(enriched, min_score=0.12, bff_services=bff_services)
     print(f"  Generated {len(edges)} edges above threshold")
 
     for src_id, tgt_id, scores, total, from_svc, to_svc in edges:

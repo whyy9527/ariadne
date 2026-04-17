@@ -10,10 +10,13 @@ Score formula:
 TF-IDF: tokens common across >20% of corpus get log-dampened IDF weight.
 Edge only emitted if base > 0 (requires actual token overlap).
 """
+import logging
 import math
 from collections import Counter
 from itertools import combinations
 from normalizer.normalizer import split_tokens
+
+_BFF_FALLBACK_WARNED = False
 
 COMPLEMENTARY_PAIRS = {
     frozenset({"graphql_mutation", "http_endpoint"}),
@@ -136,7 +139,11 @@ def compute_scores(node_a: dict, node_b: dict) -> tuple[dict, float]:
     return scores, round(total, 4)
 
 
-def infer_edge_direction(node_a: dict, node_b: dict) -> tuple[str | None, str | None]:
+def infer_edge_direction(
+    node_a: dict,
+    node_b: dict,
+    bff_services: set[str] | None = None,
+) -> tuple[str | None, str | None]:
     """Infer (from_service, to_service) for an edge between two nodes.
 
     Returns (None, None) for undirected / symmetric edges.
@@ -145,7 +152,18 @@ def infer_edge_direction(node_a: dict, node_b: dict) -> tuple[str | None, str | 
     1. backend_client_call: the caller service → target_service stored on the node.
     2. kafka produce → consume: produce node's service → consume node's service.
     3. frontend_* → graphql_* (BFF): frontend service → BFF service.
+       Only fires when the graphql node's service is in *bff_services*.
+       If *bff_services* is None, falls back to the old behaviour (any graphql_*
+       service is treated as a BFF) but emits a one-time logging.warning.
+
+    Args:
+        node_a: First node dict.
+        node_b: Second node dict.
+        bff_services: Set of service names that are BFFs (e.g. {"falcon-beak"}).
+            Pass None only for backward-compatibility; prefer passing the set.
     """
+    global _BFF_FALLBACK_WARNED
+
     type_a, type_b = node_a.get("type", ""), node_b.get("type", "")
     svc_a, svc_b = node_a.get("service"), node_b.get("service")
 
@@ -171,14 +189,36 @@ def infer_edge_direction(node_a: dict, node_b: dict) -> tuple[str | None, str | 
     frontend_types = {"frontend_query", "frontend_mutation", "frontend_subscription"}
     bff_types = {"graphql_query", "graphql_mutation", "graphql_subscription", "graphql_type"}
     if type_a in frontend_types and type_b in bff_types:
-        return svc_a, svc_b
+        if bff_services is None:
+            if not _BFF_FALLBACK_WARNED:
+                logging.warning(
+                    "infer_edge_direction: bff_services not set — treating all "
+                    "graphql_* services as BFF. Pass bff_services to suppress this warning."
+                )
+                _BFF_FALLBACK_WARNED = True
+            return svc_a, svc_b
+        if svc_b in bff_services:
+            return svc_a, svc_b
     if type_b in frontend_types and type_a in bff_types:
-        return svc_b, svc_a
+        if bff_services is None:
+            if not _BFF_FALLBACK_WARNED:
+                logging.warning(
+                    "infer_edge_direction: bff_services not set — treating all "
+                    "graphql_* services as BFF. Pass bff_services to suppress this warning."
+                )
+                _BFF_FALLBACK_WARNED = True
+            return svc_b, svc_a
+        if svc_a in bff_services:
+            return svc_b, svc_a
 
     return None, None
 
 
-def score_all_pairs(nodes: list[dict], min_score: float = 0.12) -> list[tuple]:
+def score_all_pairs(
+    nodes: list[dict],
+    min_score: float = 0.12,
+    bff_services: set[str] | None = None,
+) -> list[tuple]:
     edges = []
     node_list = [n for n in nodes if n.get("tokens")]
     node_map = {n["id"]: n for n in node_list}
@@ -191,7 +231,7 @@ def score_all_pairs(nodes: list[dict], min_score: float = 0.12) -> list[tuple]:
 
         scores, total = compute_scores(a, b)
         if total >= min_score:
-            from_svc, to_svc = infer_edge_direction(a, b)
+            from_svc, to_svc = infer_edge_direction(a, b, bff_services=bff_services)
             edges.append((a["id"], b["id"], scores, total, from_svc, to_svc))
 
     edges.sort(key=lambda x: x[3], reverse=True)

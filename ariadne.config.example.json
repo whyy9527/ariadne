@@ -1,5 +1,6 @@
 {
   "_comment": "Copy to ariadne.config.json and edit. Paths are resolved relative to this file. Each repo declares zero or more scanners; a scanner is either a string (the type) or an object with `type` plus extra options.",
+  "bff_services": ["gateway"],
   "repos": [
     {
       "name": "gateway",
