@@ -239,22 +239,21 @@
     <text x="1145" y="172" font-size="9" fill="#71777d" text-anchor="middle">git-hash incremental</text>
     <text x="1145" y="188" font-size="9" fill="#71777d" text-anchor="middle">re-run = rescan</text>
 
-    <!-- Arrows scan time -->
-    <line x1="170" y1="128" x2="238" y2="160" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
-    <line x1="170" y1="188" x2="238" y2="195" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
-    <line x1="170" y1="248" x2="238" y2="230" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
-    <line x1="170" y1="308" x2="238" y2="265" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
+    <!-- Arrows scan time — uniform 1.5 stroke, diagonals OK -->
+    <line x1="170" y1="128" x2="238" y2="160" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="170" y1="188" x2="238" y2="195" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="170" y1="248" x2="238" y2="230" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="170" y1="308" x2="238" y2="265" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-    <polyline points="440,145 474,145 474,218 508,145" fill="none" stroke="none"/>
-    <polyline points="440,218 475,218 475,143 506,143" fill="none" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
-    <text x="484" y="180" class="on-line" font-size="10" fill="#71777d">node dicts</text>
+    <line x1="440" y1="218" x2="508" y2="145" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="460" y="164" class="on-line" font-size="10" fill="#71777d" transform="rotate(-47 460 164)">node dicts</text>
 
-    <line x1="620" y1="171" x2="620" y2="193" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
+    <line x1="620" y1="171" x2="620" y2="193" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-    <polyline points="730,260 775,260 775,155 818,155" fill="none" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
-    <text x="784" y="210" class="on-line" font-size="10" fill="#71777d">edges + nodes</text>
+    <line x1="730" y1="260" x2="818" y2="160" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="752" y="204" class="on-line" font-size="10" fill="#71777d" transform="rotate(-48 752 204)">edges + nodes</text>
 
-    <line x1="1020" y1="158" x2="1068" y2="158" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
+    <line x1="1020" y1="158" x2="1068" y2="158" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
 
     <!-- ============ QUERY TIME ============ -->
 
@@ -300,14 +299,14 @@
     <text x="620" y="487" font-size="13" font-weight="600" fill="#bd4257" text-anchor="middle">query/</text>
     <text x="620" y="505" font-size="10" fill="#71777d" text-anchor="middle">tokenize hint · score · pick anchors</text>
 
-    <rect x="510" y="530" width="220" height="64" rx="3" fill="#ffffff" stroke="#bd4257" stroke-width="1.5"/>
-    <text x="620" y="552" font-size="13" font-weight="600" fill="#bd4257" text-anchor="middle">clustering</text>
-    <text x="620" y="569" font-size="10" fill="#71777d" text-anchor="middle">O(anchors × neighbours)</text>
-    <text x="620" y="584" font-size="9"  fill="#163c4d" text-anchor="middle">top 30 anchors · 12 neighbours · 25% merge</text>
+    <rect x="510" y="548" width="220" height="64" rx="3" fill="#ffffff" stroke="#bd4257" stroke-width="1.5"/>
+    <text x="620" y="570" font-size="13" font-weight="600" fill="#bd4257" text-anchor="middle">clustering</text>
+    <text x="620" y="587" font-size="10" fill="#71777d" text-anchor="middle">O(anchors × neighbours)</text>
+    <text x="620" y="602" font-size="9"  fill="#163c4d" text-anchor="middle">top 30 anchors · 12 neighbours · 25% merge</text>
 
-    <rect x="510" y="607" width="220" height="52" rx="3" fill="#ffffff" stroke="#47a1ad" stroke-width="1.5"/>
-    <text x="620" y="629" font-size="13" font-weight="600" fill="#47a1ad" text-anchor="middle">feedback boost</text>
-    <text x="620" y="647" font-size="10" fill="#71777d" text-anchor="middle">final = conf + 0.15 · Σ accepted</text>
+    <rect x="510" y="643" width="220" height="52" rx="3" fill="#ffffff" stroke="#47a1ad" stroke-width="1.5"/>
+    <text x="620" y="665" font-size="13" font-weight="600" fill="#47a1ad" text-anchor="middle">feedback boost</text>
+    <text x="620" y="683" font-size="10" fill="#71777d" text-anchor="middle">final = conf + 0.15 · Σ accepted</text>
 
     <!-- SQLite reads -->
     <rect x="820" y="465" width="200" height="60" rx="3" fill="#ffffff" stroke="#cc850a" stroke-width="1.5" stroke-dasharray="4,2"/>
@@ -320,38 +319,40 @@
     <text x="920" y="580" font-size="10" fill="#71777d" text-anchor="middle">expand within 10 min = implicit ✓</text>
 
     <!-- Response -->
-    <rect x="1070" y="465" width="150" height="194" rx="3" fill="#163c4d"/>
+    <rect x="1070" y="465" width="150" height="230" rx="3" fill="#163c4d"/>
     <text x="1145" y="490" class="title" font-size="13" fill="#ffffff" text-anchor="middle">Response</text>
     <text x="1145" y="506" font-size="10" fill="#f2617a" text-anchor="middle">~500 tokens</text>
     <line x1="1086" y1="516" x2="1204" y2="516" stroke="#71777d"/>
-    <text x="1082" y="534" font-size="9" fill="#edf1f3">Cluster #1 · 0.91</text>
-    <text x="1082" y="550" font-size="9" fill="#d5d9db">web → gateway</text>
-    <text x="1082" y="564" font-size="9" fill="#d5d9db">→ orders-svc</text>
-    <text x="1082" y="578" font-size="9" fill="#d5d9db">→ Kafka: order-created</text>
-    <text x="1082" y="592" font-size="9" fill="#d5d9db">→ billing-svc</text>
-    <line x1="1086" y1="604" x2="1204" y2="604" stroke="#71777d" stroke-dasharray="2,2"/>
-    <text x="1082" y="622" font-size="9" fill="#f2617a">stale_warning? → rescan</text>
-    <text x="1082" y="638" font-size="9" fill="#f2617a">low conf? → expand_node</text>
+    <text x="1082" y="540" font-size="9" fill="#edf1f3">Cluster #1 · 0.91</text>
+    <text x="1082" y="558" font-size="9" fill="#d5d9db">web → gateway</text>
+    <text x="1082" y="573" font-size="9" fill="#d5d9db">→ orders-svc</text>
+    <text x="1082" y="588" font-size="9" fill="#d5d9db">→ Kafka: order-created</text>
+    <text x="1082" y="603" font-size="9" fill="#d5d9db">→ billing-svc</text>
+    <line x1="1086" y1="618" x2="1204" y2="618" stroke="#71777d" stroke-dasharray="2,2"/>
+    <text x="1082" y="640" font-size="9" fill="#f2617a">stale_warning? → rescan</text>
+    <text x="1082" y="658" font-size="9" fill="#f2617a">low conf? → expand_node</text>
+    <text x="1082" y="682" font-size="9" fill="#d5d9db">ranked clusters ↲</text>
 
-    <!-- Arrows query -->
-    <line x1="170" y1="498" x2="238" y2="520" stroke="#bd4257" stroke-width="1.8" marker-end="url(#arrow-coral)"/>
+    <!-- Arrows query — uniform 1.5 stroke, diagonals allowed -->
+    <line x1="170" y1="498" x2="238" y2="520" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
     <text x="185" y="495" class="on-line" font-size="10" fill="#bd4257">stdio</text>
-    <line x1="170" y1="574" x2="238" y2="560" stroke="#163c4d" stroke-width="1.2" marker-end="url(#arrow)"/>
+    <line x1="170" y1="574" x2="238" y2="560" stroke="#163c4d" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-    <polyline points="440,494 475,494 475,490 508,490" fill="none" stroke="#bd4257" stroke-width="1.8" marker-end="url(#arrow-coral)"/>
-    <polyline points="440,589 475,589 475,632 508,632" fill="none" stroke="#47a1ad" stroke-width="1.4" marker-end="url(#arrow-teal)"/>
+    <line x1="440" y1="494" x2="508" y2="490" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+    <line x1="440" y1="589" x2="508" y2="667" stroke="#47a1ad" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
 
-    <line x1="620" y1="517" x2="620" y2="528" stroke="#bd4257" stroke-width="1.8" marker-end="url(#arrow-coral)"/>
-    <line x1="620" y1="594" x2="620" y2="605" stroke="#47a1ad" stroke-width="1.4" marker-end="url(#arrow-teal)"/>
+    <line x1="620" y1="517" x2="620" y2="546" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+    <line x1="620" y1="612" x2="620" y2="641" stroke="#47a1ad" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
 
-    <line x1="730" y1="490" x2="818" y2="490" stroke="#bd4257" stroke-width="1.8" marker-end="url(#arrow-coral)"/>
+    <line x1="730" y1="490" x2="818" y2="490" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
     <text x="770" y="483" class="on-line" font-size="10" fill="#bd4257">SELECT</text>
 
-    <polyline points="730,632 770,632 770,570 818,570" fill="none" stroke="#47a1ad" stroke-width="1.4" marker-end="url(#arrow-teal)"/>
-    <text x="778" y="608" class="on-line" font-size="10" fill="#47a1ad">rerank · write</text>
+    <line x1="730" y1="669" x2="818" y2="570" stroke="#47a1ad" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+    <text x="764" y="608" class="on-line" font-size="10" fill="#47a1ad" transform="rotate(-48 764 608)">rerank · write</text>
 
-    <line x1="730" y1="560" x2="1066" y2="560" stroke="#bd4257" stroke-width="2" marker-end="url(#arrow-coral)"/>
-    <text x="895" y="554" class="on-line" font-size="10" fill="#bd4257" font-weight="600">ranked clusters · JSON</text>
+    <!-- ranked clusters · JSON — route below the DB column via x=1045 corridor -->
+    <polyline points="730,669 1045,669 1045,580 1068,580" fill="none" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+    <text x="870" y="663" class="on-line" font-size="10" fill="#bd4257" font-weight="600">ranked clusters · JSON</text>
 
     <!-- Cross-section link scan→query (dashed) -->
     <line x1="920" y1="305" x2="920" y2="463" stroke="#cc850a" stroke-width="1" stroke-dasharray="3,3"/>
