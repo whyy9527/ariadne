@@ -44,6 +44,30 @@
           }
         }
       ]
+    },
+    {
+      "name": "bff",
+      "path": "../bff",
+      "scanners": [
+        "graphql",
+        {
+          "type": "ts_http_outbound",
+          "_comment": "Maps Apollo RESTDataSource settings keys and URL prefixes to target services. settings_key_map keys match the settings object property (e.g. settings.api.host → 'api'). url_prefix_map matches fetch/axios URL prefixes. client_name_map matches TypeScript client class name substrings.",
+          "settings_key_map": {
+            "api": "orders-svc",
+            "billingService": "billing-svc",
+            "userService": "user-svc"
+          },
+          "url_prefix_map": {
+            "http://orders-svc": "orders-svc",
+            "http://billing-svc": "billing-svc"
+          },
+          "client_name_map": {
+            "OrdersClient": "orders-svc",
+            "BillingClient": "billing-svc"
+          }
+        }
+      ]
     }
   ]
 }
