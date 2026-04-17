@@ -337,13 +337,9 @@
     <line x1="820" y1="580" x2="730" y2="665" stroke="#47a1ad" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
     <text x="770" y="615" class="on-line" font-size="10" fill="#47a1ad" transform="rotate(-43 770 615)">prior accepted</text>
 
-    <!-- feedback boost → query : loop back, boost applied to next query's scoring -->
-    <polyline points="510,669 478,669 478,490 508,490" fill="none" stroke="#47a1ad" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
-    <text x="470" y="580" class="on-line" font-size="10" fill="#47a1ad" transform="rotate(-90 470 580)">+ 0.15 · Σ accepted</text>
-
-    <!-- clustering → Response : ranked clusters output, routed below DB column -->
-    <polyline points="730,612 810,612 810,625 1045,625 1045,580 1066,580" fill="none" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-    <text x="888" y="619" class="on-line" font-size="10" fill="#bd4257" font-weight="600">ranked clusters · JSON</text>
+    <!-- feedback boost → Response : ranked output -->
+    <line x1="730" y1="669" x2="1066" y2="669" stroke="#bd4257" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+    <text x="870" y="663" class="on-line" font-size="10" fill="#bd4257" font-weight="600">ranked clusters · JSON</text>
 
   </svg>
   </div>
