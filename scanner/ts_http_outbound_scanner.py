@@ -10,10 +10,12 @@ Detects:
        (e.g. {"api": "falcon", "nezha": "nezha", "userService": "user-service"})
 
   2. Direct fetch / axios calls:
-       axios.get('/path' | url)
-       fetch('url')
+       axios.get('/path' | url_var)   — method-form
+       axios(config)                  — config-object form (method=None)
+       fetch('url' | url_var)         — string literal or variable URL
      → target resolved via `url_prefix_map` config option
        (e.g. {"/api/falcon": "falcon"})
+     → variable URLs (non-literal) emit node with path=None, target_service=None
 
   3. Typed client instantiation (best-effort):
        new XClient().method()
@@ -87,15 +89,22 @@ _CLASS_DECL = re.compile(
     r'(?:export\s+(?:default\s+)?)?class\s+(\w+)\s+extends\s+\w+'
 )
 
-# axios.get/post/put/delete/patch('/path' | url_var)
-_AXIOS_CALL = re.compile(
-    r'axios\.(get|post|put|delete|patch)\s*\(\s*([\'"`]([^\'"`\n]+)[\'"`]|\w+)',
+# axios.get/post/put/delete/patch/head/request('/path' | url_var)
+_AXIOS_METHOD_CALL = re.compile(
+    r'axios\.(get|post|put|delete|patch|head|request)\s*\(\s*([\'"`]([^\'"`\n]+)[\'"`]|\w+)',
     re.IGNORECASE,
 )
 
-# fetch('url') — node-fetch or built-in
+# axios(config) — config-object form, e.g. axios({ method: 'post', url: ... })
+# Does NOT match axios.method( forms (negative lookbehind for dot).
+_AXIOS_CONFIG_CALL = re.compile(
+    r'(?<![.\w])axios\s*\(\s*(\w+|\{)',
+)
+
+# fetch('url' | url_var) — string literal or identifier; node-fetch or built-in
+# Lookbehind prevents matching prefetch, obj.fetch, etc.
 _FETCH_CALL = re.compile(
-    r'(?<!\w)fetch\s*\(\s*[\'"`]([^\'"`\n]+)[\'"`]',
+    r'(?<![\w.])fetch\s*\(\s*([\'"`]([^\'"`\n]+)[\'"`]|\w+)',
 )
 
 # new XClient().method() — typed client instantiation
@@ -190,10 +199,10 @@ def _scan_file(
             path=None,
         ))
 
-    # --- 2. axios calls ---
-    for m in _AXIOS_CALL.finditer(text):
+    # --- 2a. axios method-form calls (axios.get/post/etc.) ---
+    for m in _AXIOS_METHOD_CALL.finditer(text):
         http_method = m.group(1).upper()
-        url_or_path = m.group(3) or ""
+        url_or_path = m.group(3) or ""   # group(3) = string literal content; empty if identifier
         target_service = _resolve_url(url_or_path, url_prefix_map)
         cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
@@ -205,9 +214,21 @@ def _scan_file(
             path=url_or_path or None,
         ))
 
-    # --- 3. fetch calls ---
+    # --- 2b. axios config-object form calls (axios(config)) ---
+    for m in _AXIOS_CONFIG_CALL.finditer(text):
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
+        nodes.append(_make_node(
+            service=service,
+            name=f"{cls}.axios",
+            target_service=None,
+            source_file=source_file,
+            method=None,
+            path=None,
+        ))
+
+    # --- 3. fetch calls (string literal or variable URL) ---
     for m in _FETCH_CALL.finditer(text):
-        url = m.group(1)
+        url = m.group(2) or ""           # group(2) = string literal content; empty if identifier
         target_service = _resolve_url(url, url_prefix_map)
         cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
@@ -216,7 +237,7 @@ def _scan_file(
             target_service=target_service,
             source_file=source_file,
             method="GET",
-            path=url,
+            path=url or None,
         ))
 
     # --- 4. typed client instantiation ---
