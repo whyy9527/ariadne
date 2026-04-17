@@ -59,6 +59,7 @@ def _get_scanner_registry():
     from scanner.frontend_rest_scanner import FrontendRESTScanner
     from scanner.backend_client_scanner import BackendClientScanner
     from scanner.cube_scanner import CubeScanner
+    from scanner.ts_http_outbound_scanner import TsHttpOutboundScanner
     return {
         "graphql": GraphQLScanner,
         "http": HTTPScanner,
@@ -67,6 +68,7 @@ def _get_scanner_registry():
         "frontend_rest": FrontendRESTScanner,
         "backend_clients": BackendClientScanner,
         "cube": CubeScanner,
+        "ts_http_outbound": TsHttpOutboundScanner,
     }
 
 
@@ -295,8 +297,9 @@ def cmd_scan(args):
     edges = score_all_pairs(enriched, min_score=0.12)
     print(f"  Generated {len(edges)} edges above threshold")
 
-    for src_id, tgt_id, scores, total in edges:
-        db.upsert_edge(src_id, tgt_id, scores, total)
+    for src_id, tgt_id, scores, total, from_svc, to_svc in edges:
+        db.upsert_edge(src_id, tgt_id, scores, total,
+                       from_service=from_svc, to_service=to_svc)
     db.commit()
 
     print(f"Done. DB: {args.db}")

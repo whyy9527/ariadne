@@ -12,15 +12,16 @@ STALE_SCAN_DAYS = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes (
-    id          TEXT PRIMARY KEY,
-    type        TEXT NOT NULL,
-    raw_name    TEXT NOT NULL,
-    service     TEXT NOT NULL,
-    source_file TEXT,
-    method      TEXT,
-    path        TEXT,
-    tokens      TEXT,   -- JSON array
-    field_tokens TEXT   -- JSON array
+    id           TEXT PRIMARY KEY,
+    type         TEXT NOT NULL,
+    raw_name     TEXT NOT NULL,
+    service      TEXT NOT NULL,
+    source_file  TEXT,
+    method       TEXT,
+    path         TEXT,
+    tokens       TEXT,   -- JSON array
+    field_tokens TEXT,   -- JSON array
+    target_service TEXT  -- outbound call target (populated by directional scanners)
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -32,6 +33,8 @@ CREATE TABLE IF NOT EXISTS edges (
     field_score     REAL DEFAULT 0,
     role_score      REAL DEFAULT 0,
     service_score   REAL DEFAULT 0,
+    from_service    TEXT,
+    to_service      TEXT,
     UNIQUE(source_id, target_id)
 );
 
@@ -60,37 +63,65 @@ CREATE INDEX IF NOT EXISTS idx_nodes_service ON nodes(service);
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply incremental schema migrations that CREATE TABLE IF NOT EXISTS cannot handle."""
+    # v2: add from_service / to_service columns to edges
+    edge_cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(edges)").fetchall()
+    }
+    for col in ("from_service", "to_service"):
+        if col not in edge_cols:
+            conn.execute(f"ALTER TABLE edges ADD COLUMN {col} TEXT")
+
+    # v2: add target_service column to nodes
+    node_cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(nodes)").fetchall()
+    }
+    if "target_service" not in node_cols:
+        conn.execute("ALTER TABLE nodes ADD COLUMN target_service TEXT")
+
+    conn.commit()
+
+
 class DB:
     def __init__(self, db_path: str = "semantic_hint.db"):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        _migrate(self.conn)
         self.conn.commit()
 
     def upsert_node(self, node: dict, tokens: list[str], field_tokens: list[str]):
         self.conn.execute("""
             INSERT OR REPLACE INTO nodes
-              (id, type, raw_name, service, source_file, method, path, tokens, field_tokens)
-            VALUES (?,?,?,?,?,?,?,?,?)
+              (id, type, raw_name, service, source_file, method, path, tokens, field_tokens, target_service)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         """, (
             node["id"], node["type"], node["raw_name"], node["service"],
             node.get("source_file"), node.get("method"), node.get("path"),
             json.dumps(tokens), json.dumps(field_tokens),
+            node.get("target_service"),
         ))
 
-    def upsert_edge(self, source_id: str, target_id: str, scores: dict, total: float = None):
+    def upsert_edge(self, source_id: str, target_id: str, scores: dict, total: float = None,
+                    from_service: str = None, to_service: str = None):
         if total is None:
             total = sum(scores.values())
         self.conn.execute("""
             INSERT OR REPLACE INTO edges
-              (source_id, target_id, total_score, name_score, field_score, role_score, service_score)
-            VALUES (?,?,?,?,?,?,?)
+              (source_id, target_id, total_score, name_score, field_score, role_score, service_score,
+               from_service, to_service)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """, (
             source_id, target_id, total,
             scores.get("name_score", 0),
             scores.get("field_score", 0),
             scores.get("role_score", 0),
             scores.get("service_score", 0),
+            from_service,
+            to_service,
         ))
 
     def insert_cluster(self, query_hint: str, confidence: float, node_ids: list[str]):

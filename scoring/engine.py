@@ -136,9 +136,52 @@ def compute_scores(node_a: dict, node_b: dict) -> tuple[dict, float]:
     return scores, round(total, 4)
 
 
+def infer_edge_direction(node_a: dict, node_b: dict) -> tuple[str | None, str | None]:
+    """Infer (from_service, to_service) for an edge between two nodes.
+
+    Returns (None, None) for undirected / symmetric edges.
+
+    Rules (applied in order, first match wins):
+    1. backend_client_call: the caller service → target_service stored on the node.
+    2. kafka produce → consume: produce node's service → consume node's service.
+    3. frontend_* → graphql_* (BFF): frontend service → BFF service.
+    """
+    type_a, type_b = node_a.get("type", ""), node_b.get("type", "")
+    svc_a, svc_b = node_a.get("service"), node_b.get("service")
+
+    # Rule 1: backend_client_call
+    if type_a == "backend_client_call":
+        tgt = node_a.get("target_service")
+        if tgt and tgt != svc_a:
+            return svc_a, tgt
+    if type_b == "backend_client_call":
+        tgt = node_b.get("target_service")
+        if tgt and tgt != svc_b:
+            return svc_b, tgt
+
+    # Rule 2: kafka producer → consumer
+    method_a, method_b = node_a.get("method"), node_b.get("method")
+    if type_a == "kafka_topic" and type_b == "kafka_topic":
+        if method_a == "produce" and method_b in ("consume", "config"):
+            return svc_a, svc_b
+        if method_b == "produce" and method_a in ("consume", "config"):
+            return svc_b, svc_a
+
+    # Rule 3: frontend_* → graphql_* (BFF call)
+    frontend_types = {"frontend_query", "frontend_mutation", "frontend_subscription"}
+    bff_types = {"graphql_query", "graphql_mutation", "graphql_subscription", "graphql_type"}
+    if type_a in frontend_types and type_b in bff_types:
+        return svc_a, svc_b
+    if type_b in frontend_types and type_a in bff_types:
+        return svc_b, svc_a
+
+    return None, None
+
+
 def score_all_pairs(nodes: list[dict], min_score: float = 0.12) -> list[tuple]:
     edges = []
     node_list = [n for n in nodes if n.get("tokens")]
+    node_map = {n["id"]: n for n in node_list}
 
     for a, b in combinations(node_list, 2):
         ta, tb = set(a.get("tokens", [])), set(b.get("tokens", []))
@@ -148,7 +191,8 @@ def score_all_pairs(nodes: list[dict], min_score: float = 0.12) -> list[tuple]:
 
         scores, total = compute_scores(a, b)
         if total >= min_score:
-            edges.append((a["id"], b["id"], scores, total))
+            from_svc, to_svc = infer_edge_direction(a, b)
+            edges.append((a["id"], b["id"], scores, total, from_svc, to_svc))
 
     edges.sort(key=lambda x: x[3], reverse=True)
     return edges
@@ -196,6 +240,13 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
         if isinstance(e, tuple):
             return e[0], e[1]
         return e["source_id"], e["target_id"]
+
+    def edge_direction(e):
+        """Return (from_service, to_service) or (None, None)."""
+        if isinstance(e, tuple):
+            # tuple layout: (src_id, tgt_id, scores, total, from_svc, to_svc)
+            return (e[4], e[5]) if len(e) >= 6 else (None, None)
+        return e.get("from_service"), e.get("to_service")
 
     # Build fast adjacency: node_id → [(neighbor_id, score)]
     adj: dict[str, list[tuple[str, float]]] = {}

@@ -79,11 +79,38 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
             nodes_info.append(display)
         # Trim: max 2 per (service, type), overall max 12
         nodes_info = _trim_cluster_nodes(nodes_info)
+
+        # Build directional edge summary for this cluster
+        cluster_node_ids = {n["id"] for n in nodes_info}
+        cluster_edges = db.get_edges_for_nodes(list(cluster_node_ids), min_score=0.12)
+        directed_edges = []
+        for e in cluster_edges:
+            if e.get("from_service") and e.get("to_service"):
+                sid, tid = e["source_id"], e["target_id"]
+                if sid in cluster_node_ids and tid in cluster_node_ids:
+                    sn = node_map.get(sid)
+                    tn = node_map.get(tid)
+                    directed_edges.append({
+                        "from_service": e["from_service"],
+                        "to_service": e["to_service"],
+                        "from_node": sn.get("raw_name") if sn else sid,
+                        "to_node": tn.get("raw_name") if tn else tid,
+                        "score": round(e["total_score"], 3),
+                    })
+        # Deduplicate by (from_service, to_service) pair — keep highest score
+        seen_pairs: dict[tuple, dict] = {}
+        for de in directed_edges:
+            key = (de["from_service"], de["to_service"])
+            if key not in seen_pairs or de["score"] > seen_pairs[key]["score"]:
+                seen_pairs[key] = de
+        directed_edges_deduped = sorted(seen_pairs.values(), key=lambda x: -x["score"])
+
         enriched.append({
             "query": hint,
             "confidence": c["confidence"],
             "nodes": nodes_info,
             "services": list({_service_of(n) for n in nodes_info}),
+            "directed_edges": directed_edges_deduped,
         })
 
     return enriched
@@ -114,12 +141,28 @@ def expand(db, node_id_or_name: str, hops: int = 1) -> list[dict]:
         node_map = {n["id"]: n for n in all_nodes}
         neighbors = []
         for e in edges[:10]:
-            other_id = e["target_id"] if e["source_id"] == target["id"] else e["source_id"]
+            is_outbound = e["source_id"] == target["id"]
+            other_id = e["target_id"] if is_outbound else e["source_id"]
             other = node_map.get(other_id)
             if other:
+                from_svc = e.get("from_service")
+                to_svc = e.get("to_service")
+                # Derive direction label relative to the target node
+                if from_svc and to_svc:
+                    if from_svc == target.get("service"):
+                        direction = "outbound"
+                    elif to_svc == target.get("service"):
+                        direction = "inbound"
+                    else:
+                        direction = "related"
+                else:
+                    direction = None
                 neighbors.append({
                     "node": _format_node(other),
                     "score": round(e["total_score"], 3),
+                    "from_service": from_svc,
+                    "to_service": to_svc,
+                    "direction": direction,
                 })
         results.append({
             "source": _format_node(target),
