@@ -143,6 +143,22 @@ def _is_excluded(path: str) -> bool:
     return False
 
 
+def _nearest_class_name(text: str, match_pos: int) -> str | None:
+    """Return the name of the class declaration nearest before *match_pos*.
+
+    Precomputes nothing — called per match, but files are small so a linear
+    backward scan is fine.  Returns None if no class declaration precedes the
+    match position.
+    """
+    best_name: str | None = None
+    for m in _CLASS_DECL.finditer(text):
+        if m.start() < match_pos:
+            best_name = m.group(1)
+        else:
+            break  # finditer yields in order; no earlier match possible after this
+    return best_name
+
+
 def _scan_file(
     text: str,
     source_file: str,
@@ -153,17 +169,21 @@ def _scan_file(
 ) -> list[dict]:
     nodes: list[dict] = []
 
-    # --- 1. settings.X.host pattern (Apollo DS subclass) ---
-    # Find the class name this appears in
+    # Fallback class name used when no class declaration precedes a match.
+    # Also used for axios/fetch/client passes (unchanged behaviour there).
     class_names = [m.group(1) for m in _CLASS_DECL.finditer(text)]
-    class_name = class_names[0] if class_names else Path(source_file).stem
+    fallback_class_name = class_names[0] if class_names else Path(source_file).stem
 
+    # --- 1. settings.X.host pattern (Apollo DS subclass) ---
+    # Use the class declaration nearest *before* each settings match so that
+    # files with multiple DS classes attribute each baseURL to the right class.
     for m in _SETTINGS_BASE_URL.finditer(text):
         settings_key = m.group(1)
         target_service = settings_key_map.get(settings_key) or None
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
         nodes.append(_make_node(
             service=service,
-            name=class_name,
+            name=cls,
             target_service=target_service,
             source_file=source_file,
             method=None,
@@ -177,7 +197,7 @@ def _scan_file(
         target_service = _resolve_url(url_or_path, url_prefix_map)
         nodes.append(_make_node(
             service=service,
-            name=f"{class_name}.{m.group(1).lower()}",
+            name=f"{fallback_class_name}.{m.group(1).lower()}",
             target_service=target_service,
             source_file=source_file,
             method=http_method,
@@ -190,7 +210,7 @@ def _scan_file(
         target_service = _resolve_url(url, url_prefix_map)
         nodes.append(_make_node(
             service=service,
-            name=f"{class_name}.fetch",
+            name=f"{fallback_class_name}.fetch",
             target_service=target_service,
             source_file=source_file,
             method="GET",
