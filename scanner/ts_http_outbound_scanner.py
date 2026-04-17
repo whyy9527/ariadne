@@ -137,7 +137,7 @@ def scan_ts_http_outbound(
 
 def _is_excluded(path: str) -> bool:
     for seg in ("/node_modules/", "/dist/", "/__tests__/", ".test.ts", ".spec.ts",
-                "/types/", "/mock", "/generated"):
+                "/__generated__/", "/generated/", ".generated.ts", "/mock"):
         if seg in path:
             return True
     return False
