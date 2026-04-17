@@ -17,6 +17,7 @@ from itertools import combinations
 from normalizer.normalizer import split_tokens
 
 _BFF_FALLBACK_WARNED = False
+_BFF_MISS_LOGGED: set[str] = set()
 
 COMPLEMENTARY_PAIRS = {
     frozenset({"graphql_mutation", "http_endpoint"}),
@@ -139,6 +140,17 @@ def compute_scores(node_a: dict, node_b: dict) -> tuple[dict, float]:
     return scores, round(total, 4)
 
 
+def _emit_bff_fallback_warning() -> None:
+    """Emit the bff_services-not-set warning once, then suppress."""
+    global _BFF_FALLBACK_WARNED
+    if not _BFF_FALLBACK_WARNED:
+        logging.warning(
+            "infer_edge_direction: bff_services not set — treating all "
+            "graphql_* services as BFF. Pass bff_services to suppress this warning."
+        )
+        _BFF_FALLBACK_WARNED = True
+
+
 def infer_edge_direction(
     node_a: dict,
     node_b: dict,
@@ -190,26 +202,30 @@ def infer_edge_direction(
     bff_types = {"graphql_query", "graphql_mutation", "graphql_subscription", "graphql_type"}
     if type_a in frontend_types and type_b in bff_types:
         if bff_services is None:
-            if not _BFF_FALLBACK_WARNED:
-                logging.warning(
-                    "infer_edge_direction: bff_services not set — treating all "
-                    "graphql_* services as BFF. Pass bff_services to suppress this warning."
-                )
-                _BFF_FALLBACK_WARNED = True
+            _emit_bff_fallback_warning()
             return svc_a, svc_b
         if svc_b in bff_services:
             return svc_a, svc_b
+        else:
+            if svc_b not in _BFF_MISS_LOGGED:
+                logging.debug(
+                    "infer_edge_direction: graphql node service '%s' not in bff_services;"
+                    " skipping rule 3", svc_b
+                )
+                _BFF_MISS_LOGGED.add(svc_b)
     if type_b in frontend_types and type_a in bff_types:
         if bff_services is None:
-            if not _BFF_FALLBACK_WARNED:
-                logging.warning(
-                    "infer_edge_direction: bff_services not set — treating all "
-                    "graphql_* services as BFF. Pass bff_services to suppress this warning."
-                )
-                _BFF_FALLBACK_WARNED = True
+            _emit_bff_fallback_warning()
             return svc_b, svc_a
         if svc_a in bff_services:
             return svc_b, svc_a
+        else:
+            if svc_a not in _BFF_MISS_LOGGED:
+                logging.debug(
+                    "infer_edge_direction: graphql node service '%s' not in bff_services;"
+                    " skipping rule 3", svc_a
+                )
+                _BFF_MISS_LOGGED.add(svc_a)
 
     return None, None
 
