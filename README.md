@@ -243,11 +243,10 @@ Python 3.10. MCP is still the recommended path.
 
 ![Ariadne architecture](docs/architecture.png)
 
-<sub>Diagram themed with the Thoughtworks brand file from
+<sub>Brand tokens from
 [VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md),
-rendered via the
-[architecture-diagram skill](https://github.com/cocoon-ai/skills) by
-Cocoon AI.</sub>
+rendered via
+[Cocoon-AI/architecture-diagram-generator](https://github.com/Cocoon-AI/architecture-diagram-generator).</sub>
 
 ```
 ariadne/
