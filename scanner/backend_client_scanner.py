@@ -58,24 +58,51 @@ def scan_backend_clients(
 
 
 def _infer_target(class_name: str, dirname: str, target_map: dict, service: str) -> str:
-    # 1. Exact dirname lookup (primary, zero-config path)
+    """Resolve the target service for a client file.
+
+    Lookup order (most-specific first):
+      1. dirname exact match in target_map  — explicit override wins
+      2. dirname as target (zero-config convention: client/<svc>/FooClient.java)
+         skipped when dirname is the bare "client" dir (file lives at client/ root)
+      3. class-name substring match against target_map — last resort for flat
+         client/ layouts where all clients live in one directory.
+         NOTE: this must stay LAST to avoid false matches. Example: a target_map
+         entry {"ai": "ai-adapter"} would incorrectly match FalconAiClient.java
+         (dirname=falcon) if substring ran before step 2.
+
+    Args:
+        class_name: stem of the Java file, e.g. "FalconAiClient"
+        dirname:    immediate parent directory name, e.g. "falcon"
+        target_map: client_target_map from config, e.g. {"ai": "ai-adapter"}
+        service:    the repo/service being scanned (used for log messages only)
+    """
+    # 1. Exact dirname override
     if dirname in target_map:
         return target_map[dirname]
-    # 2. Class-name substring match (legacy fallback for non-standard layouts)
+
+    # 2. Zero-config primary path: dirname IS the target service.
+    #    Skip only when dirname is the catch-all "client" dir itself (i.e. the file
+    #    lives directly in client/, not client/<svc>/), because in that layout
+    #    dirname carries no target information — fall through to substring.
+    if dirname and dirname != "client":
+        global _logged_fallback_dirnames
+        if dirname not in _logged_fallback_dirnames:
+            _logged_fallback_dirnames.add(dirname)
+            logging.info(
+                "backend_clients[%s]: no client_target_map entry for '%s' — "
+                "defaulting target_service='%s'. Add to client_target_map to override.",
+                service, dirname, dirname,
+            )
+        return dirname
+
+    # 3. Last-resort: class-name substring match (legacy flat client/ layout).
+    #    Runs only when dirname gave no useful signal (bare "client" dir or empty).
     lower = class_name.lower()
     for key, svc in target_map.items():
         if key.lower() in lower:
             return svc
-    # 3. Zero-config: dirname == target_service (logs once per dirname)
-    global _logged_fallback_dirnames
-    if dirname not in _logged_fallback_dirnames:
-        _logged_fallback_dirnames.add(dirname)
-        logging.info(
-            "backend_clients[%s]: no client_target_map entry for '%s' — "
-            "defaulting target_service='%s'. Add to client_target_map to override.",
-            service, dirname, dirname,
-        )
-    return dirname
+
+    return "external"  # truly unknown
 
 
 def _parse_client(text: str, caller_service: str, target_service: str, source_file: str) -> list[dict]:
