@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8A2BE2)](https://modelcontextprotocol.io)
+[![ariadne MCP server](https://glama.ai/mcp/servers/whyy9527/ariadne/badges/score.svg)](https://glama.ai/mcp/servers/whyy9527/ariadne)
+[![Awesome MCP Servers](https://img.shields.io/badge/Awesome-MCP%20Servers-FC60A8?logo=awesomelists)](https://github.com/punkpeye/awesome-mcp-servers#-developer-tools)
 
 > Ariadne's thread — a way out of the microservice maze.
 
@@ -83,7 +85,4 @@ scan, query. Reproducible end-to-end in under a minute.
 
 <sub>Architecture, MCP tools, scoring math, feedback boost →
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Custom scanners (Go,
-Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).
-Listed on
-[Glama](https://glama.ai/mcp/servers/whyy9527/ariadne) ·
-[Awesome MCP Servers](https://github.com/punkpeye/awesome-mcp-servers#-developer-tools).</sub>
+Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).</sub>
