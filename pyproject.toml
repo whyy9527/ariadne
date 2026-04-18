@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ariadne-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cross-service API dependency graph for microservice stacks. MCP stdio server + CLI for Claude Code, Cursor, and Windsurf."
 readme = "README.md"
 license = { file = "LICENSE" }

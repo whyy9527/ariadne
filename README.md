@@ -44,7 +44,23 @@ Apollo/fetch/axios · Cube.js.
 
 ---
 
-## Install
+## Try it in 30 seconds (zero config)
+
+```bash
+pip install ariadne-mcp
+ariadne-mcp demo
+```
+
+Clones [`spring-petclinic-microservices`][petclinic] into
+`~/.cache/ariadne-mcp/demo`, scans it, and prints the top cluster for
+`owner` — a real cross-service call chain. No config file, no workspace
+setup.
+
+[petclinic]: https://github.com/spring-petclinic/spring-petclinic-microservices
+
+---
+
+## Install on your own workspace
 
 ```bash
 pip install ariadne-mcp
