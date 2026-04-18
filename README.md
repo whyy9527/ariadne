@@ -67,6 +67,13 @@ customer."*
 repos would return 40+ matches across DTOs, tests, and configs at ~2000
 tokens, with the contract layer buried.
 
+![Ariadne architecture](docs/architecture.png)
+
+<sub>Brand tokens from
+[VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md),
+rendered via
+[Cocoon-AI/architecture-diagram-generator](https://github.com/Cocoon-AI/architecture-diagram-generator).</sub>
+
 ---
 
 ## Golden path
@@ -124,51 +131,9 @@ What the assistant sees once `install` is done and Claude Code is restarted:
 
 ## Configuration
 
-### Config format
-
-```json
-{
-  "repos": [
-    {
-      "name": "gateway",
-      "path": "../gateway",
-      "scanners": ["graphql"]
-    },
-    {
-      "name": "orders-svc",
-      "path": "../orders-svc",
-      "scanners": [
-        "http",
-        "kafka",
-        {
-          "type": "backend_clients",
-          "client_target_map": { "billing": "billing-svc", "user": "user-svc" }
-        }
-      ]
-    },
-    {
-      "name": "web",
-      "path": "../web",
-      "scanners": [
-        "frontend_graphql",
-        {
-          "type": "frontend_rest",
-          "base_class_service": { "OrdersApiService": "orders-svc" }
-        }
-      ]
-    }
-  ]
-}
-```
-
-Paths are resolved relative to the config file. Each repo lists one or more
-scanners — either by name (string) or as an object with extra options.
-
-### Inferred defaults (minimal config)
-
-If you omit `scanners`, Ariadne infers them from filesystem signals in the
-repo at scan time. `name` defaults to the path basename, and `bff_services`
-is derived from whichever repos end up with the `graphql` scanner.
+List your repos. That's it — scanners are inferred from filesystem signals
+at scan time, `name` defaults to the path basename, and `bff_services` is
+derived from whichever repos get the `graphql` scanner.
 
 ```json
 { "repos": [
@@ -178,9 +143,9 @@ is derived from whichever repos end up with the `graphql` scanner.
 ]}
 ```
 
-Detection rules:
+Detection rules (top-level files in each repo):
 
-| Signal in repo root                             | Inferred scanners                       |
+| Signal                                          | Inferred scanners                       |
 |-------------------------------------------------|-----------------------------------------|
 | `package.json` with `@cubejs-backend/*` dep     | `["cube"]`                              |
 | `package.json` + `@apollo/server` / SDL file    | `["graphql", "ts_http_outbound"]`       |
@@ -190,15 +155,33 @@ Detection rules:
 | none of the above                               | *warning printed, repo skipped*         |
 
 Inference is logged at scan start (`[auto-detect] <repo>: scanners = [...]`)
-so you can see exactly what got filled in. Explicit `scanners` in config
-always wins — inference is a default, not a silent rewrite.
+so you see exactly what got filled in. Run `python3 main.py config validate
+--config <path>` for a dry-run that prints inferred defaults and flags
+errors (missing paths, duplicate names, unknown scanner types, etc.).
 
-**When to add overrides.** Zero-config resolves cross-service edges only
-when scanner-specific name mappings aren't needed. If a BFF uses settings
-keys whose names don't match the target service (`api` → `falcon`,
-`userService` → `user-service`), or if outbound client folders don't match
-service names (`ai/` → `ai-adapter`), write the full scanner object for
-that repo. See the explicit example above.
+### When defaults aren't enough
+
+Override a single repo by writing an explicit `scanners` list. Use the
+object form when a scanner needs mappings that can't be inferred:
+
+```json
+{
+  "path": "../bff",
+  "scanners": [
+    "graphql",
+    {
+      "type": "ts_http_outbound",
+      "settings_key_map": { "userService": "user-service" },
+      "url_prefix_map":   { "http://orders": "orders-svc" }
+    }
+  ]
+}
+```
+
+Options per scanner: `backend_clients.client_target_map`,
+`frontend_rest.base_class_service`, `ts_http_outbound.settings_key_map` /
+`url_prefix_map` / `client_name_map`. Explicit values always win — the
+auto-detector never overwrites what you wrote.
 
 ### Available scanners
 
@@ -276,13 +259,6 @@ Python 3.10. MCP is still the recommended path.
 ---
 
 ## Architecture
-
-![Ariadne architecture](docs/architecture.png)
-
-<sub>Brand tokens from
-[VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md),
-rendered via
-[Cocoon-AI/architecture-diagram-generator](https://github.com/Cocoon-AI/architecture-diagram-generator).</sub>
 
 ```
 ariadne/

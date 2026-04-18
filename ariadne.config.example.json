@@ -1,23 +1,10 @@
 {
-  "_comment": "Copy to ariadne.config.json and edit. Paths are resolved relative to this file. Omit `scanners` to let Ariadne infer them from the repo's files (pom.xml/build.gradle → JVM backend; package.json + apollo/SDL → TS BFF; package.json → frontend; @cubejs-backend dep → cube). `bff_services` is derived from any repo whose scanner list contains `graphql`. Explicit scanners always win — use the object form when a scanner needs mappings that can't be inferred (settings_key_map, url_prefix_map, client_target_map, base_class_service).",
+  "_comment": "Copy to ariadne.config.json and edit the paths. Paths are resolved relative to this file. Scanners are inferred from each repo's files at scan time (pom.xml/build.gradle → JVM backend; package.json + apollo/SDL → TS BFF; package.json → frontend; @cubejs-backend dep → cube). Run `python3 main.py config validate` to see what gets inferred. See README → Configuration → 'When defaults aren't enough' for explicit overrides.",
   "repos": [
     { "path": "../gateway" },
     { "path": "../orders-svc" },
     { "path": "../billing-svc" },
     { "path": "../analytics" },
-    { "path": "../web" },
-
-    {
-      "_comment": "Example override: keep the object form when a scanner needs mappings.",
-      "path": "../bff-with-overrides",
-      "scanners": [
-        "graphql",
-        {
-          "type": "ts_http_outbound",
-          "settings_key_map": { "userService": "user-service" },
-          "url_prefix_map": { "http://orders": "orders-svc" }
-        }
-      ]
-    }
+    { "path": "../web" }
   ]
 }
