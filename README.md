@@ -164,6 +164,42 @@ What the assistant sees once `install` is done and Claude Code is restarted:
 Paths are resolved relative to the config file. Each repo lists one or more
 scanners — either by name (string) or as an object with extra options.
 
+### Inferred defaults (minimal config)
+
+If you omit `scanners`, Ariadne infers them from filesystem signals in the
+repo at scan time. `name` defaults to the path basename, and `bff_services`
+is derived from whichever repos end up with the `graphql` scanner.
+
+```json
+{ "repos": [
+    { "path": "../gateway" },
+    { "path": "../orders-svc" },
+    { "path": "../web" }
+]}
+```
+
+Detection rules:
+
+| Signal in repo root                             | Inferred scanners                       |
+|-------------------------------------------------|-----------------------------------------|
+| `package.json` with `@cubejs-backend/*` dep     | `["cube"]`                              |
+| `package.json` + `@apollo/server` / SDL file    | `["graphql", "ts_http_outbound"]`       |
+| `package.json` (anything else)                  | `["frontend_graphql", "frontend_rest"]` |
+| `pom.xml` / `build.gradle(.kts)` + SDL          | `["graphql", "http", "kafka", "backend_clients"]` |
+| `pom.xml` / `build.gradle(.kts)`                | `["http", "kafka", "backend_clients"]`  |
+| none of the above                               | *warning printed, repo skipped*         |
+
+Inference is logged at scan start (`[auto-detect] <repo>: scanners = [...]`)
+so you can see exactly what got filled in. Explicit `scanners` in config
+always wins — inference is a default, not a silent rewrite.
+
+**When to add overrides.** Zero-config resolves cross-service edges only
+when scanner-specific name mappings aren't needed. If a BFF uses settings
+keys whose names don't match the target service (`api` → `falcon`,
+`userService` → `user-service`), or if outbound client folders don't match
+service names (`ai/` → `ai-adapter`), write the full scanner object for
+that repo. See the explicit example above.
+
 ### Available scanners
 
 | Scanner            | Looks for                                                          |

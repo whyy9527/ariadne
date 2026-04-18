@@ -143,7 +143,66 @@ def _load_config(path: str) -> dict:
     if not isinstance(cfg, dict) or "repos" not in cfg:
         print("ERROR: config must be a JSON object with a 'repos' array.", file=sys.stderr)
         sys.exit(1)
+    diag = _normalize_config(cfg, os.path.dirname(os.path.abspath(path)))
+    cfg["__normalize_diag__"] = diag
     return cfg
+
+
+def _scanner_type_names(scanners: list) -> list[str]:
+    """Extract the scanner type names from a mixed string/object list."""
+    out = []
+    for sc in scanners or []:
+        if isinstance(sc, str):
+            out.append(sc)
+        elif isinstance(sc, dict) and sc.get("type"):
+            out.append(sc["type"])
+    return out
+
+
+def _normalize_config(cfg: dict, cfg_dir: str) -> dict:
+    """Fill in defaults so minimal configs work: name from basename, scanners
+    from auto-detection, bff_services from repos exposing the `graphql` scanner.
+
+    Mutates *cfg* in place (only user-facing keys: name, scanners, bff_services).
+    Returns a diagnostics dict:
+        {"inferred_scanners": {repo_name: [sc_names]},
+         "detect_failures":   [repo_name, ...],
+         "inferred_bff":      [svc, ...] | None}
+    Explicit values always win; diagnostics is information, not state.
+    """
+    from scanner.auto_detect import detect_scanners
+
+    diag = {"inferred_scanners": {}, "detect_failures": [], "inferred_bff": None}
+
+    for entry in cfg.get("repos", []):
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if not path:
+            continue
+        if not entry.get("name"):
+            entry["name"] = os.path.basename(os.path.normpath(path))
+        if "scanners" not in entry or entry["scanners"] in ([], None):
+            abs_path = _resolve_path(cfg_dir, path)
+            detected = detect_scanners(abs_path)
+            entry["scanners"] = detected
+            if detected:
+                diag["inferred_scanners"][entry["name"]] = list(detected)
+            else:
+                diag["detect_failures"].append(entry["name"])
+
+    if "bff_services" not in cfg:
+        inferred = [
+            e["name"] for e in cfg.get("repos", [])
+            if isinstance(e, dict)
+            and e.get("name")
+            and "graphql" in _scanner_type_names(e.get("scanners", []))
+        ]
+        if inferred:
+            cfg["bff_services"] = inferred
+            diag["inferred_bff"] = list(inferred)
+
+    return diag
 
 
 def _resolve_path(base: str, p: str) -> str:
@@ -167,6 +226,35 @@ def _git_head_hash(repo_path: str) -> str | None:
         return None
 
 
+def _print_normalize_diag(diag: dict) -> None:
+    """Surface auto-inference so users can see what was filled in.
+
+    Silent when the config was fully explicit. Warns loudly when a repo was
+    listed but auto-detect produced no scanners — that's almost certainly
+    a misconfiguration the user wants flagged, not a silent skip.
+    """
+    if not diag:
+        return
+    inferred = diag.get("inferred_scanners") or {}
+    failures = diag.get("detect_failures") or []
+    bff = diag.get("inferred_bff")
+
+    for name, sc_list in inferred.items():
+        print(f"  [auto-detect] {name}: scanners = {sc_list}")
+    if bff:
+        print(f"  [auto-detect] bff_services = {bff}")
+    for name in failures:
+        use_color = sys.stderr.isatty()
+        prefix = "\033[33m" if use_color else ""
+        suffix = "\033[0m" if use_color else ""
+        print(
+            f"{prefix}⚠ [auto-detect] {name}: could not infer scanners "
+            f"(no package.json / pom.xml / build.gradle* / GraphQL SDL found). "
+            f"Add \"scanners\": [...] explicitly, or the repo will be skipped.{suffix}",
+            file=sys.stderr,
+        )
+
+
 def cmd_scan(args):
     from normalizer.normalizer import normalize
     from store.db import DB
@@ -175,6 +263,7 @@ def cmd_scan(args):
     cfg_path = os.path.abspath(args.config)
     cfg = _load_config(cfg_path)
     cfg_dir = os.path.dirname(cfg_path)
+    _print_normalize_diag(cfg.pop("__normalize_diag__", {}))
 
     db = DB(args.db)
     force = getattr(args, "force", False)
@@ -468,6 +557,7 @@ def cmd_config_validate(args):
     cfg_path = os.path.abspath(args.config)
     cfg = _load_config(cfg_path)
     cfg_dir = os.path.dirname(cfg_path)
+    _print_normalize_diag(cfg.pop("__normalize_diag__", {}))
 
     errors: list[str] = []
     warnings: list[str] = []

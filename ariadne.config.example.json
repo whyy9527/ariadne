@@ -1,60 +1,21 @@
 {
-  "_comment": "Copy to ariadne.config.json and edit. Paths are resolved relative to this file. Each repo declares zero or more scanners; a scanner is either a string (the type) or an object with `type` plus extra options.",
-  "bff_services": ["gateway"],
+  "_comment": "Copy to ariadne.config.json and edit. Paths are resolved relative to this file. Omit `scanners` to let Ariadne infer them from the repo's files (pom.xml/build.gradle → JVM backend; package.json + apollo/SDL → TS BFF; package.json → frontend; @cubejs-backend dep → cube). `bff_services` is derived from any repo whose scanner list contains `graphql`. Explicit scanners always win — use the object form when a scanner needs mappings that can't be inferred (settings_key_map, url_prefix_map, client_target_map, base_class_service).",
   "repos": [
+    { "path": "../gateway" },
+    { "path": "../orders-svc" },
+    { "path": "../billing-svc" },
+    { "path": "../analytics" },
+    { "path": "../web" },
+
     {
-      "name": "gateway",
-      "path": "../gateway",
-      "scanners": ["graphql"]
-    },
-    {
-      "name": "orders-svc",
-      "path": "../orders-svc",
-      "scanners": [
-        "http",
-        "kafka",
-        {
-          "type": "backend_clients",
-          "_comment": "client_target_map: leave empty for zero-config (dirname == service name). Add overrides only when the client/<dirname>/ folder name doesn't match the target service repo name. Example: if your client folder is 'ai/' but the service is 'ai-adapter', add {\"ai\": \"ai-adapter\"}.",
-          "client_target_map": {}
-        }
-      ]
-    },
-    {
-      "name": "billing-svc",
-      "path": "../billing-svc",
-      "scanners": ["http", "kafka"]
-    },
-    {
-      "name": "analytics",
-      "path": "../analytics",
-      "scanners": ["cube"]
-    },
-    {
-      "name": "web",
-      "path": "../web",
-      "scanners": [
-        "frontend_graphql",
-        {
-          "type": "frontend_rest",
-          "base_class_service": {
-            "OrdersApiService": "orders-svc",
-            "BillingApiService": "billing-svc"
-          }
-        }
-      ]
-    },
-    {
-      "name": "bff",
-      "path": "../bff",
+      "_comment": "Example override: keep the object form when a scanner needs mappings.",
+      "path": "../bff-with-overrides",
       "scanners": [
         "graphql",
         {
           "type": "ts_http_outbound",
-          "_comment": "settings_key_map: leave empty for zero-config (settings key == service name). Add overrides only when the key in settings.<key>.host doesn't match the target service repo name. Example: 'userService' key → 'user-service' repo, or 'intellectualTutoringService' → 'its'. url_prefix_map and client_name_map have no zero-config fallback — populate them when fetch/axios URLs or client class names are used.",
-          "settings_key_map": {},
-          "url_prefix_map": {},
-          "client_name_map": {}
+          "settings_key_map": { "userService": "user-service" },
+          "url_prefix_map": { "http://orders": "orders-svc" }
         }
       ]
     }
