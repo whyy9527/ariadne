@@ -113,6 +113,11 @@ python3 main.py install ariadne.config.json ~/your-workspace
 assistant call `rescan` when it sees a `stale_warning`. See `--help` for
 flags (`--no-scan`, `--force`, `--snippet`, `--marker`).
 
+Want to try Ariadne before pointing it at your own repos? See
+[`examples/spring-petclinic/`](examples/spring-petclinic/) — a
+reproducible walkthrough that scans the public
+`spring-petclinic-microservices` sample and runs a cross-service query.
+
 ---
 
 ## Tools

@@ -1,0 +1,10 @@
+{
+  "_comment": "Example config for Spring PetClinic Microservices (https://github.com/spring-petclinic/spring-petclinic-microservices). Place this file alongside the cloned `spring-petclinic-microservices/` directory; paths resolve relative to this file. Scanners are inferred — each repo gets [http, kafka, backend_clients] from the pom.xml signal.",
+  "repos": [
+    { "path": "spring-petclinic-microservices/spring-petclinic-api-gateway" },
+    { "path": "spring-petclinic-microservices/spring-petclinic-customers-service" },
+    { "path": "spring-petclinic-microservices/spring-petclinic-vets-service" },
+    { "path": "spring-petclinic-microservices/spring-petclinic-visits-service" },
+    { "path": "spring-petclinic-microservices/spring-petclinic-genai-service" }
+  ]
+}

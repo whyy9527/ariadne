@@ -9,7 +9,9 @@ build/
 .venv/
 venv/
 
-# Local Ariadne config — never commit a user's config (paths leak repo layout)
-ariadne.config.json
+# Local Ariadne config — never commit a user's config (paths leak repo layout).
+# Scope to repo root so the public examples/<sample>/ariadne.config.json files
+# stay tracked.
+/ariadne.config.json
 awesome-mcp-servers/
 GROWTH_NOTES.md
