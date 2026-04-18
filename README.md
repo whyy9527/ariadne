@@ -13,6 +13,13 @@
 MCP stdio server for AI coding assistants (Claude Code, Cursor, Windsurf), with a
 CLI twin for scripting. Read-only static analysis on SQLite + TF-IDF. Zero ML dependencies.
 
+![Ariadne demo — scan Spring PetClinic microservices and ask "owner"](docs/demo.gif)
+
+<sub>Recorded against the public
+[spring-petclinic-microservices](https://github.com/spring-petclinic/spring-petclinic-microservices)
+sample. Source: [`docs/demo.tape`](docs/demo.tape). Reproduce it with
+[`examples/spring-petclinic/`](examples/spring-petclinic/).</sub>
+
 ---
 
 ## Who is this for
