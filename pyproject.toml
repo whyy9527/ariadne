@@ -3,27 +3,55 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ariadne"
+name = "ariadne-mcp"
 version = "0.1.0"
-description = "Cross-service API dependency graph and semantic code navigation for microservice architectures. CLI + MCP server for Claude Code, Cursor, and Windsurf."
+description = "Cross-service API dependency graph for microservice stacks. MCP stdio server + CLI for Claude Code, Cursor, and Windsurf."
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "whyy9527" }]
+authors = [{ name = "whyy" }]
 requires-python = ">=3.10"
-dependencies = [
+keywords = [
     "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "cursor",
+    "graphql",
+    "microservices",
+    "code-navigation",
+    "dependency-graph",
+    "llm-tools",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "mcp>=1.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/whyy9527/ariadne"
+Repository = "https://github.com/whyy9527/ariadne"
 Issues = "https://github.com/whyy9527/ariadne/issues"
+Changelog = "https://github.com/whyy9527/ariadne/releases"
 
 [project.scripts]
-ariadne = "main:main"
+ariadne-mcp = "ariadne_mcp.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["normalizer*", "query*", "scanner*", "scoring*", "store*"]
+include = ["ariadne_mcp*"]
 
-[tool.setuptools]
-py-modules = ["main"]
+[tool.setuptools.package-data]
+ariadne_mcp = ["claude-md-snippet.md", "ariadne.config.example.json"]

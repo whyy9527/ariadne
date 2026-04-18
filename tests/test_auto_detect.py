@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scanner.auto_detect import detect_scanners
-from main import _normalize_config
+from ariadne_mcp.scanner.auto_detect import detect_scanners
+from ariadne_mcp.cli import _normalize_config
 
 
 def _write(path: Path, content: str = "") -> None:

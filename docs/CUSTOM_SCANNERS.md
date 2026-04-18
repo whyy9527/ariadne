@@ -2,9 +2,9 @@
 
 Any language or framework not covered by the built-in scanners (see
 [`CONFIG.md`](CONFIG.md#available-scanners)) can be added without
-touching Ariadne's source code. Implement `scanner.BaseScanner`, put the
-module somewhere Python can import it, and reference the class by dotted
-path in `ariadne.config.json`:
+touching Ariadne's source code. Implement `ariadne_mcp.scanner.BaseScanner`,
+put the module somewhere Python can import it, and reference the class by
+dotted path in `ariadne.config.json`:
 
 ```json
 {
@@ -24,7 +24,7 @@ path in `ariadne.config.json`:
 
 ```python
 # my_scanners/go_scanner.py
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 class GoRouteScanner(BaseScanner):
     def __init__(self, route_file: str = "routes.go"):
@@ -44,5 +44,5 @@ class GoRouteScanner(BaseScanner):
         }]
 ```
 
-See `scanner/` in the repo for reference implementations of the built-in
-scanners.
+See `ariadne_mcp/scanner/` in the repo for reference implementations of
+the built-in scanners.

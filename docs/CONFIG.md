@@ -18,7 +18,7 @@ repos whose scanner list contains `graphql`.
 
 Inference is logged at scan start (`[auto-detect] <repo>: scanners = [...]`)
 so you see exactly what got filled in. Run
-`python3 main.py config validate --config <path>` for a dry-run that
+`ariadne-mcp config validate --config <path>` for a dry-run that
 prints inferred defaults and flags errors (missing paths, duplicate
 names, unknown scanner types, etc.).
 

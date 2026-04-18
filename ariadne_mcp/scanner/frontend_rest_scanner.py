@@ -15,7 +15,7 @@ File filter: all .ts/.tsx files are scanned except noise directories/patterns:
 """
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 # Path segments (anywhere in the path) to exclude entirely
 _NOISE_PATH_SEGMENTS = frozenset({

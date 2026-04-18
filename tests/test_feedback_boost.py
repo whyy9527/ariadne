@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ──────────────────────────────────────────────
 
 def _make_fdb(path: str):
-    from store.feedback_db import FeedbackDB
+    from ariadne_mcp.store.feedback_db import FeedbackDB
     return FeedbackDB(path)
 
 
@@ -135,7 +135,7 @@ def test_boost_rerank_lifts_cluster():
     """
     Cluster with historically accepted nodes should score higher after boost.
     """
-    from query.query import _BOOST_ALPHA
+    from ariadne_mcp.query.query import _BOOST_ALPHA
 
     clusters = _make_clusters(
         ["svc::gql::m::createOrder", "kafka::topic::order-created"],  # cluster 0: will be boosted
@@ -163,7 +163,7 @@ def test_boost_rerank_lifts_cluster():
 
 def test_boost_rerank_no_overlap():
     """Clusters with no accepted nodes keep original order."""
-    from query.query import _BOOST_ALPHA
+    from ariadne_mcp.query.query import _BOOST_ALPHA
 
     clusters = _make_clusters(["node:A"], ["node:B"])
     clusters[0]["confidence"] = 0.8
@@ -194,7 +194,7 @@ def _run_query_with_boost_flag(fdb, flag_value: str) -> list[dict]:
     a full ariadne.db. We monkey-patch query internals to return fixed clusters.
     """
     import unittest.mock as mock
-    from query.query import query as q
+    from ariadne_mcp.query.query import query as q
 
     # Minimal fake DB for query() internals
     fake_db = mock.MagicMock()
@@ -207,8 +207,8 @@ def _run_query_with_boost_flag(fdb, flag_value: str) -> list[dict]:
         "node_ids": ["node:BOOSTED"],
         "confidence": 0.5,
     }
-    with mock.patch("query.query.find_anchors", return_value=[]), \
-         mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
+    with mock.patch("ariadne_mcp.query.query.find_anchors", return_value=[]), \
+         mock.patch("ariadne_mcp.query.query.build_clusters", return_value=[stub_cluster]), \
          mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": flag_value}):
         results = q(fake_db, "createOrder", top_n=3, fdb=fdb)
     return results
@@ -244,7 +244,7 @@ def test_feature_flag_enabled_by_default():
             fdb.log("createOrder", 1, ["node:BOOSTED"], True)
 
         results = _run_query_with_boost_flag(fdb, "1")
-        from query.query import _BOOST_ALPHA
+        from ariadne_mcp.query.query import _BOOST_ALPHA
         if results:
             expected = round(0.5 + _BOOST_ALPHA * 3, 6)
             assert abs(results[0]["confidence"] - expected) < 1e-9, \
@@ -264,7 +264,7 @@ def test_no_feedback_no_crash():
         path = f.name
     try:
         import unittest.mock as mock
-        from query.query import query as q
+        from ariadne_mcp.query.query import query as q
 
         fdb = _make_fdb(path)
         # No feedback written for "createOrder"
@@ -275,8 +275,8 @@ def test_no_feedback_no_crash():
         fake_db.get_edges_for_nodes.return_value = []
 
         stub_cluster = {"node_ids": ["node:X"], "confidence": 0.5}
-        with mock.patch("query.query.find_anchors", return_value=[]), \
-             mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
+        with mock.patch("ariadne_mcp.query.query.find_anchors", return_value=[]), \
+             mock.patch("ariadne_mcp.query.query.build_clusters", return_value=[stub_cluster]), \
              mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": "1"}):
             results = q(fake_db, "createOrder", top_n=3, fdb=fdb)
 
@@ -290,7 +290,7 @@ def test_no_feedback_no_crash():
 def test_fdb_none_no_crash():
     """query() with fdb=None (default) must not raise."""
     import unittest.mock as mock
-    from query.query import query as q
+    from ariadne_mcp.query.query import query as q
 
     fake_db = mock.MagicMock()
     fake_db.get_token_idf.return_value = {}
@@ -298,8 +298,8 @@ def test_fdb_none_no_crash():
     fake_db.get_edges_for_nodes.return_value = []
 
     stub_cluster = {"node_ids": ["node:X"], "confidence": 0.5}
-    with mock.patch("query.query.find_anchors", return_value=[]), \
-         mock.patch("query.query.build_clusters", return_value=[stub_cluster]), \
+    with mock.patch("ariadne_mcp.query.query.find_anchors", return_value=[]), \
+         mock.patch("ariadne_mcp.query.query.build_clusters", return_value=[stub_cluster]), \
          mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": "1"}):
         results = q(fake_db, "createOrder", top_n=3, fdb=None)
 

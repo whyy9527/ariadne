@@ -9,9 +9,9 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from normalizer.normalizer import split_tokens, normalize
-from scoring.engine import jaccard, compute_scores
-from store.db import DB
+from ariadne_mcp.normalizer.normalizer import split_tokens, normalize
+from ariadne_mcp.scoring.engine import jaccard, compute_scores
+from ariadne_mcp.store.db import DB
 
 
 # ──────────────────────────────────────────────
@@ -184,7 +184,7 @@ def test_db_edge():
 # ──────────────────────────────────────────────
 
 def test_feedback_db_log_and_count():
-    from store.feedback_db import FeedbackDB
+    from ariadne_mcp.store.feedback_db import FeedbackDB
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
     try:
@@ -199,7 +199,7 @@ def test_feedback_db_log_and_count():
 
 
 def test_feedback_db_persistence():
-    from store.feedback_db import FeedbackDB
+    from ariadne_mcp.store.feedback_db import FeedbackDB
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
     try:
@@ -220,7 +220,7 @@ def test_feedback_db_persistence():
 
 def test_basescanner_abc():
     """BaseScanner cannot be instantiated directly (it's abstract)."""
-    from scanner import BaseScanner
+    from ariadne_mcp.scanner import BaseScanner
     try:
         BaseScanner()
         assert False, "Should have raised TypeError"
@@ -230,7 +230,7 @@ def test_basescanner_abc():
 
 def test_basescanner_subclass():
     """A concrete subclass of BaseScanner satisfies isinstance check."""
-    from scanner import BaseScanner
+    from ariadne_mcp.scanner import BaseScanner
 
     class DummyScanner(BaseScanner):
         def scan(self, repo_path: str, service: str) -> list[dict]:
@@ -247,7 +247,7 @@ def test_basescanner_subclass():
 
 def test_resolve_scanner_builtin():
     """Built-in scanner names resolve to a bound scan method (class-based)."""
-    from main import _resolve_scanner
+    from ariadne_mcp.cli import _resolve_scanner
     fn, is_class = _resolve_scanner("graphql", {})
     assert callable(fn)
     assert is_class is True
@@ -255,7 +255,7 @@ def test_resolve_scanner_builtin():
 
 def test_resolve_scanner_unknown():
     """Unknown non-dotted names raise ValueError."""
-    from main import _resolve_scanner
+    from ariadne_mcp.cli import _resolve_scanner
     try:
         _resolve_scanner("nonexistent_scanner", {})
         assert False, "Should have raised ValueError"
@@ -267,7 +267,7 @@ def test_resolve_scanner_dotted_path():
     """Dotted-path class reference is dynamically imported and instantiated."""
     import types
     import sys
-    from scanner import BaseScanner
+    from ariadne_mcp.scanner import BaseScanner
 
     # Build a tiny in-memory module with a scanner class
     mod = types.ModuleType("_test_custom_scanner_mod")
@@ -286,7 +286,7 @@ def test_resolve_scanner_dotted_path():
     sys.modules["_test_custom_scanner_mod"] = mod
 
     try:
-        from main import _resolve_scanner
+        from ariadne_mcp.cli import _resolve_scanner
         fn, is_class = _resolve_scanner(
             "_test_custom_scanner_mod:_CustomScanner",
             {"tag": "hello"},
@@ -307,7 +307,7 @@ def test_pluggable_scanner_end_to_end():
     import sys
     import json
     import tempfile
-    from scanner import BaseScanner
+    from ariadne_mcp.scanner import BaseScanner
 
     # Register an in-memory scanner module
     mod = types.ModuleType("_e2e_custom_scanner")
@@ -352,7 +352,7 @@ def test_pluggable_scanner_end_to_end():
                 db_path = db_file.name
 
             import argparse
-            from main import cmd_scan
+            from ariadne_mcp.cli import cmd_scan
             args = argparse.Namespace(
                 config=cfg_path,
                 db=db_path,
@@ -360,7 +360,7 @@ def test_pluggable_scanner_end_to_end():
             )
             cmd_scan(args)
 
-            from store.db import DB
+            from ariadne_mcp.store.db import DB
             db = DB(db_path)
             nodes = db.get_nodes_by_service("e2e-svc")
             db.close()
@@ -462,7 +462,7 @@ def test_cli_stale_warning_emitted(capsys=None):
     """cmd_query emits stale warning to stderr when oldest scan > 7 days."""
     import tempfile, io, contextlib, argparse
     from datetime import datetime, timezone, timedelta
-    from main import _stale_warning
+    from ariadne_mcp.cli import _stale_warning
 
     f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     f.close()
@@ -489,7 +489,7 @@ def test_cli_no_warning_when_fresh(capsys=None):
     """No warning when scan is 1 day old."""
     import tempfile, io, contextlib, argparse
     from datetime import datetime, timezone, timedelta
-    from main import _stale_warning
+    from ariadne_mcp.cli import _stale_warning
 
     f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     f.close()
@@ -514,7 +514,7 @@ def test_mcp_stale_warning_in_payload():
     from datetime import datetime, timezone, timedelta
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from mcp_server import _build_stale_warning
+    from ariadne_mcp.server import _build_stale_warning
 
     # Stale case
     f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -565,7 +565,7 @@ def _make_frontend_rest_repo(tmp_dir: str, files: "list[tuple[str, str]]") -> st
 def test_frontend_rest_tsx_component_scanned():
     """Dashboard.tsx with an axiosRequest.get call IS scanned and produces a node."""
     import tempfile
-    from scanner.frontend_rest_scanner import scan_frontend_rest
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
 
     axios_call = (
         "class DashboardService {\n"
@@ -585,7 +585,7 @@ def test_frontend_rest_tsx_component_scanned():
 def test_frontend_rest_test_file_skipped():
     """userService.test.ts with an axios call is SKIPPED."""
     import tempfile
-    from scanner.frontend_rest_scanner import scan_frontend_rest
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
 
     axios_call = (
         "class X {\n"
@@ -603,7 +603,7 @@ def test_frontend_rest_test_file_skipped():
 def test_frontend_rest_dts_file_skipped():
     """api.d.ts is SKIPPED (type declaration)."""
     import tempfile
-    from scanner.frontend_rest_scanner import scan_frontend_rest
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
 
     dts_content = "export declare function getUser(): Promise<void>;\n"
     with tempfile.TemporaryDirectory() as tmp:
@@ -615,7 +615,7 @@ def test_frontend_rest_dts_file_skipped():
 def test_frontend_rest_stories_file_skipped():
     """Button.stories.tsx is SKIPPED (Storybook)."""
     import tempfile
-    from scanner.frontend_rest_scanner import scan_frontend_rest
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
 
     stories_content = (
         "class StoryHelper {\n"
@@ -644,7 +644,7 @@ def test_rescan_missing_manifest_returns_error():
     """No manifest.json → rescan returns error JSON, does not crash."""
     import asyncio
     import json as _json
-    import mcp_server
+    from ariadne_mcp import server as mcp_server
 
     with tempfile.TemporaryDirectory() as workspace:
         data_dir = os.path.join(workspace, ".ariadne")
@@ -668,8 +668,8 @@ def test_rescan_refreshes_index_and_invalidates_cache():
     """
     import asyncio
     import json as _json
-    import mcp_server
-    import main as _main
+    from ariadne_mcp import server as mcp_server
+    from ariadne_mcp import cli as _main
 
     with tempfile.TemporaryDirectory() as workspace:
         # 1. Build a minimal fake repo with one .graphql file
@@ -696,7 +696,7 @@ def test_rescan_refreshes_index_and_invalidates_cache():
         _write(manifest_path, _json.dumps({"config_path": config_path}))
 
         # Verify install-time state
-        from store.db import DB
+        from ariadne_mcp.store.db import DB
         nodes_before = DB(db_path).node_count()
         assert nodes_before >= 1, "initial scan should find at least createOrder"
 

@@ -8,6 +8,7 @@ dist/
 build/
 .venv/
 venv/
+uv.lock
 
 # Local Ariadne config — never commit a user's config (paths leak repo layout).
 # Scope to repo root so the public examples/<sample>/ariadne.config.json files

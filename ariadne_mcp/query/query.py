@@ -5,8 +5,8 @@ return top candidate cross-service chains.
 import os
 import sys
 
-from normalizer.normalizer import split_tokens
-from scoring.engine import build_clusters, find_anchors
+from ariadne_mcp.normalizer.normalizer import split_tokens
+from ariadne_mcp.scoring.engine import build_clusters, find_anchors
 
 # Boost weight applied to clusters with historical positive feedback.
 # Tuned empirically at α=0.15 — revisit after accumulating real usage data.
@@ -21,7 +21,7 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
     Pure SQLite read — no ML inference at query time.
     Semantic similarity is pre-computed at scan time and stored as edge weights.
     """
-    from scoring.engine import set_idf
+    from ariadne_mcp.scoring.engine import set_idf
     idf = db.get_token_idf()
     if idf:
         set_idf(idf)
@@ -120,7 +120,7 @@ def expand(db, node_id_or_name: str, hops: int = 1) -> list[dict]:
     """
     Given exact or partial node id/name, expand to neighbors.
     """
-    from scoring.engine import set_idf
+    from ariadne_mcp.scoring.engine import set_idf
     idf = db.get_token_idf()
     if idf:
         set_idf(idf)

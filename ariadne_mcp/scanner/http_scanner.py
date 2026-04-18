@@ -4,7 +4,7 @@ Detects @RestController + @{Get,Post,Put,Delete,Patch}Mapping annotations.
 """
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 
 class HTTPScanner(BaseScanner):

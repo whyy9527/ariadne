@@ -14,7 +14,7 @@ import logging
 import math
 from collections import Counter
 from itertools import combinations
-from normalizer.normalizer import split_tokens
+from ariadne_mcp.normalizer.normalizer import split_tokens
 
 _BFF_FALLBACK_WARNED = False
 _BFF_MISS_LOGGED: set[str] = set()

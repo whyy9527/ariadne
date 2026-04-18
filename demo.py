@@ -16,9 +16,9 @@ import sys
 _DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DIR)
 
-from normalizer.normalizer import normalize
-from scoring.engine import compute_idf, set_idf, score_all_pairs
-from store.db import DB
+from ariadne_mcp.normalizer.normalizer import normalize
+from ariadne_mcp.scoring.engine import compute_idf, set_idf, score_all_pairs
+from ariadne_mcp.store.db import DB
 
 
 DEMO_NODES = [

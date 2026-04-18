@@ -4,7 +4,7 @@ Extracts operation name + top-level selection fields.
 """
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 
 class FrontendGraphQLScanner(BaseScanner):

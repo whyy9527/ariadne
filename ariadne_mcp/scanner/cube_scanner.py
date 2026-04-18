@@ -7,7 +7,7 @@ Produces one node per cube, with measures + dimensions as fields.
 """
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 
 class CubeScanner(BaseScanner):

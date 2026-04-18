@@ -10,7 +10,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scanner.http_scanner import scan_http_controllers
+from ariadne_mcp.scanner.http_scanner import scan_http_controllers
 
 
 PETCLINIC_OWNER_RESOURCE = """\

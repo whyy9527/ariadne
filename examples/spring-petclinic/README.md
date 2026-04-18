@@ -20,11 +20,14 @@ git clone --depth 1 https://github.com/spring-petclinic/spring-petclinic-microse
 # 3. Drop this config in (same directory as the clone)
 curl -O https://raw.githubusercontent.com/whyy9527/ariadne/main/examples/spring-petclinic/ariadne.config.json
 
-# 4. Scan (assumes ariadne cloned elsewhere, e.g. ~/src/ariadne)
-python3 ~/src/ariadne/main.py --db ./petclinic.db scan --config ./ariadne.config.json
+# 4. Install Ariadne (if you haven't already)
+pip install ariadne-mcp
 
-# 5. Ask a cross-service question
-python3 ~/src/ariadne/main.py --db ./petclinic.db query "owner"
+# 5. Scan
+ariadne-mcp --db ./petclinic.db scan --config ./ariadne.config.json
+
+# 6. Ask a cross-service question
+ariadne-mcp --db ./petclinic.db query "owner"
 ```
 
 ## What you'll see

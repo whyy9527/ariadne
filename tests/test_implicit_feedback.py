@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ──────────────────────────────────────────────
 
 def _make_fdb(path: str):
-    from store.feedback_db import FeedbackDB
+    from ariadne_mcp.store.feedback_db import FeedbackDB
     return FeedbackDB(path)
 
 
@@ -111,7 +111,7 @@ def test_feedback_db_migration_adds_source_column():
 # ──────────────────────────────────────────────
 
 def test_extract_cluster_node_names_basic():
-    from mcp_server import _extract_cluster_node_names
+    from ariadne_mcp.server import _extract_cluster_node_names
 
     results = [
         {
@@ -140,7 +140,7 @@ def test_implicit_feedback_written_on_expand_match():
     Simulate: query_chains caches a pending entry, then expand_node is called
     with a name matching one of the cluster nodes → implicit feedback row written.
     """
-    import mcp_server
+    from ariadne_mcp import server as mcp_server
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         fb_path = f.name
@@ -209,7 +209,7 @@ def test_implicit_feedback_written_on_expand_match():
 
 def test_ttl_expired_entries_not_written():
     """Expired pending entries (older than _PENDING_TTL) must not produce feedback."""
-    import mcp_server
+    from ariadne_mcp import server as mcp_server
     from collections import deque
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -251,7 +251,7 @@ def test_ttl_expired_entries_not_written():
 
 def test_no_match_no_feedback():
     """expand_node with a name that doesn't match any pending entry → no feedback."""
-    import mcp_server
+    from ariadne_mcp import server as mcp_server
     from collections import deque
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -290,7 +290,7 @@ def test_no_match_no_feedback():
 
 def test_pending_deque_cap():
     """Deque should not grow beyond _PENDING_MAX (oldest evicted automatically)."""
-    import mcp_server
+    from ariadne_mcp import server as mcp_server
     from collections import deque
 
     cap = mcp_server._PENDING_MAX

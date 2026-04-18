@@ -7,7 +7,7 @@ Scans Kafka topics from:
 import re
 from pathlib import Path
 
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 try:
     import yaml

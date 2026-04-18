@@ -3,11 +3,11 @@
 ariadne: local non-invasive cross-service chain hinter.
 
 Usage:
-  python main.py scan     [--config PATH] [--db PATH]
-  python main.py query    <hint>  [--db PATH] [--top N]
-  python main.py expand   <name>  [--db PATH]
-  python main.py stats    [--db PATH]
-  python main.py install  <config> <workspace> [--snippet PATH] [--no-scan]
+  ariadne-mcp scan     [--config PATH] [--db PATH]
+  ariadne-mcp query    <hint>  [--db PATH] [--top N]
+  ariadne-mcp expand   <name>  [--db PATH]
+  ariadne-mcp stats    [--db PATH]
+  ariadne-mcp install  <config> <workspace> [--snippet PATH] [--no-scan]
 
 Scan is config-driven. Pass --config PATH (default: ariadne.config.json in the
 current working directory). See ariadne.config.example.json for the format.
@@ -27,7 +27,7 @@ STALE_SCAN_DAYS = 7  # must match store/db.STALE_SCAN_DAYS
 
 def _stale_warning(db, args=None) -> None:
     """Print a warning to stderr if the oldest scan is older than STALE_SCAN_DAYS."""
-    from store.db import STALE_SCAN_DAYS as _THRESHOLD
+    from ariadne_mcp.store.db import STALE_SCAN_DAYS as _THRESHOLD
     oldest = db.get_oldest_scanned_at()
     if oldest is None:
         return
@@ -42,7 +42,7 @@ def _stale_warning(db, args=None) -> None:
         suffix = "\033[0m" if use_color else ""
         print(
             f"{prefix}⚠ Oldest scan: {age_days} days ago. "
-            f"Re-scan: python3 main.py scan{config_hint}{suffix}",
+            f"Re-scan: ariadne-mcp scan{config_hint}{suffix}",
             file=sys.stderr,
         )
 
@@ -52,14 +52,14 @@ def _get_scanner_registry():
 
     Imported lazily so scanner modules are only loaded when needed.
     """
-    from scanner.graphql_scanner import GraphQLScanner
-    from scanner.http_scanner import HTTPScanner
-    from scanner.kafka_scanner import KafkaScanner
-    from scanner.frontend_scanner import FrontendGraphQLScanner
-    from scanner.frontend_rest_scanner import FrontendRESTScanner
-    from scanner.backend_client_scanner import BackendClientScanner
-    from scanner.cube_scanner import CubeScanner
-    from scanner.ts_http_outbound_scanner import TsHttpOutboundScanner
+    from ariadne_mcp.scanner.graphql_scanner import GraphQLScanner
+    from ariadne_mcp.scanner.http_scanner import HTTPScanner
+    from ariadne_mcp.scanner.kafka_scanner import KafkaScanner
+    from ariadne_mcp.scanner.frontend_scanner import FrontendGraphQLScanner
+    from ariadne_mcp.scanner.frontend_rest_scanner import FrontendRESTScanner
+    from ariadne_mcp.scanner.backend_client_scanner import BackendClientScanner
+    from ariadne_mcp.scanner.cube_scanner import CubeScanner
+    from ariadne_mcp.scanner.ts_http_outbound_scanner import TsHttpOutboundScanner
     return {
         "graphql": GraphQLScanner,
         "http": HTTPScanner,
@@ -170,7 +170,7 @@ def _normalize_config(cfg: dict, cfg_dir: str) -> dict:
          "inferred_bff":      [svc, ...] | None}
     Explicit values always win; diagnostics is information, not state.
     """
-    from scanner.auto_detect import detect_scanners
+    from ariadne_mcp.scanner.auto_detect import detect_scanners
 
     diag = {"inferred_scanners": {}, "detect_failures": [], "inferred_bff": None}
 
@@ -256,9 +256,9 @@ def _print_normalize_diag(diag: dict) -> None:
 
 
 def cmd_scan(args):
-    from normalizer.normalizer import normalize
-    from store.db import DB
-    from scoring.engine import compute_idf, set_idf, score_all_pairs
+    from ariadne_mcp.normalizer.normalizer import normalize
+    from ariadne_mcp.store.db import DB
+    from ariadne_mcp.scoring.engine import compute_idf, set_idf, score_all_pairs
 
     cfg_path = os.path.abspath(args.config)
     cfg = _load_config(cfg_path)
@@ -398,8 +398,8 @@ def cmd_scan(args):
 
 
 def cmd_query(args):
-    from store.db import DB
-    from query.query import query, print_results
+    from ariadne_mcp.store.db import DB
+    from ariadne_mcp.query.query import query, print_results
 
     db = DB(args.db)
     _stale_warning(db, args)
@@ -410,8 +410,8 @@ def cmd_query(args):
 
 
 def cmd_expand(args):
-    from store.db import DB
-    from query.query import expand, print_expand
+    from ariadne_mcp.store.db import DB
+    from ariadne_mcp.query.query import expand, print_expand
 
     db = DB(args.db)
     _stale_warning(db, args)
@@ -423,7 +423,6 @@ def cmd_expand(args):
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
-MCP_SERVER_PATH = os.path.join(PKG_DIR, "mcp_server.py")
 
 
 def run_scan(config_path: str, db_path: str, force: bool = False) -> dict:
@@ -438,7 +437,7 @@ def run_scan(config_path: str, db_path: str, force: bool = False) -> dict:
     scan_args = argparse.Namespace(config=config_path, db=db_path, force=force)
     cmd_scan(scan_args)
 
-    from store.db import DB as _DB
+    from ariadne_mcp.store.db import DB as _DB
     _db = _DB(db_path)
     n_nodes = _db.node_count()
 
@@ -497,8 +496,8 @@ def cmd_install(args):
                 cfg = {}
     servers = cfg.setdefault("mcpServers", {})
     servers["ariadne"] = {
-        "command": "python3",
-        "args": [MCP_SERVER_PATH, "--db", db_path, "--fb", fb_path],
+        "command": sys.executable,
+        "args": ["-m", "ariadne_mcp.server", "--db", db_path, "--fb", fb_path],
     }
     with open(mcp_json, "w") as f:
         json.dump(cfg, f, indent=2)
@@ -525,7 +524,7 @@ def cmd_install(args):
             f.write(snippet)
         print(f"==> CLAUDE.md: CREATED {claude_md}")
 
-    from store.db import DB
+    from ariadne_mcp.store.db import DB
     try:
         n_nodes = DB(db_path).node_count()
         n_str = f"{n_nodes} nodes"
@@ -666,7 +665,7 @@ def print_issues(errors: list[str], warnings: list[str]):
 
 
 def cmd_stats(args):
-    from store.db import DB
+    from ariadne_mcp.store.db import DB
     from collections import Counter
 
     db = DB(args.db)

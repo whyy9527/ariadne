@@ -40,7 +40,7 @@ Config example (in ariadne.config.json):
 import logging
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 # Module-level set so each fallback settings key logs only once per process run
 _logged_fallback_keys: set[str] = set()

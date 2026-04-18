@@ -6,7 +6,7 @@ Extracts:
 """
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 
 class GraphQLScanner(BaseScanner):

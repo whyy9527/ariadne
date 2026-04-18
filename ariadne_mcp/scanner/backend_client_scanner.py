@@ -13,7 +13,7 @@ repo violates that convention (e.g. {"aiadapter": "ai-adapter"}).
 import logging
 import re
 from pathlib import Path
-from scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner
 
 # Module-level set so each fallback dirname logs only once per process run
 _logged_fallback_dirnames: set[str] = set()

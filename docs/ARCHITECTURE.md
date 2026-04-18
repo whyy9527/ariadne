@@ -109,4 +109,4 @@ What an AI assistant sees once `install` is done:
 If the oldest scan is > 7 days old, MCP responses include a
 `stale_warning` field (CLI prints the same warning to stderr). From an
 AI conversation, call `rescan()`; from the shell,
-`python3 main.py scan --config <path>`.
+`ariadne-mcp scan --config <path>`.

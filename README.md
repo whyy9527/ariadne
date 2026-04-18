@@ -47,10 +47,10 @@ Apollo/fetch/axios · Cube.js.
 ## Install
 
 ```bash
-git clone https://github.com/whyy9527/ariadne.git && cd ariadne
-pip install mcp
-cp ariadne.config.example.json ariadne.config.json   # edit repos inside
-python3 main.py install ariadne.config.json ~/your-workspace
+pip install ariadne-mcp
+cp "$(python -c 'import ariadne_mcp, os; print(os.path.join(os.path.dirname(ariadne_mcp.__file__), "ariadne.config.example.json"))')" ariadne.config.json
+# edit ariadne.config.json (list the repos you want indexed)
+ariadne-mcp install ariadne.config.json ~/your-workspace
 ```
 
 Restart Claude Code. `install` is idempotent — re-run after pulling new

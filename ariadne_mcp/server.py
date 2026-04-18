@@ -61,7 +61,7 @@ def _build_stale_warning(db) -> "str | None":
     if age_days >= _STALE_DAYS:
         return (
             f"⚠ Oldest scan: {age_days} days ago. "
-            "Re-scan: python3 main.py scan --config <path>"
+            "Re-scan: ariadne-mcp scan --config <path>"
         )
     return None
 
@@ -75,7 +75,7 @@ def _ensure_db(db_path: str):
     if not os.path.exists(path):
         print(
             f"[ariadne] DB not found at {path}. "
-            "Run 'python3 main.py scan --config ariadne.config.json' to build it.",
+            "Run 'ariadne-mcp scan --config ariadne.config.json' to build it.",
             file=sys.stderr,
         )
         return
@@ -84,7 +84,7 @@ def _ensure_db(db_path: str):
     if age_days > _STALE_DAYS:
         print(
             f"[ariadne] WARNING: DB is {age_days:.0f} days old (>{_STALE_DAYS}). "
-            "Consider re-running 'python3 main.py scan'.",
+            "Consider re-running 'ariadne-mcp scan'.",
             file=sys.stderr,
         )
 
@@ -104,11 +104,11 @@ _PendingQueries: deque = deque(maxlen=_PENDING_MAX)
 def _get_db(db_path: str):
     global _db
     if _db is None:
-        from store.db import DB
+        from ariadne_mcp.store.db import DB
         _db = DB(db_path)
         idf = _db.get_token_idf()
         if idf:
-            from scoring.engine import set_idf
+            from ariadne_mcp.scoring.engine import set_idf
             set_idf(idf)
     return _db
 
@@ -116,7 +116,7 @@ def _get_db(db_path: str):
 def _get_fdb(fb_path: str):
     global _fdb
     if _fdb is None:
-        from store.feedback_db import FeedbackDB
+        from ariadne_mcp.store.feedback_db import FeedbackDB
         _fdb = FeedbackDB(fb_path)
     return _fdb
 
@@ -296,7 +296,7 @@ async def _rescan() -> list[TextContent]:
                     "No manifest at "
                     f"{manifest_path}. This index was built by an older install "
                     "that didn't persist the config path. Re-run "
-                    "`python3 main.py install <config> <workspace>` from a shell "
+                    "`ariadne-mcp install <config> <workspace>` from a shell "
                     "once to enable in-conversation rescan."
                 )
             })
@@ -323,7 +323,7 @@ async def _rescan() -> list[TextContent]:
             })
         )]
 
-    import main as _main
+    from ariadne_mcp import cli as _main
     try:
         summary = _main.run_scan(config_path, _DB_PATH)
     except SystemExit as e:
@@ -355,7 +355,7 @@ def _detect_config_issues() -> list[str]:
     if not os.path.exists(_DB_PATH):
         issues.append(
             f"DB not found at {_DB_PATH}. Run "
-            f"`python3 main.py scan --config ariadne.config.json` to build it."
+            f"`ariadne-mcp scan --config ariadne.config.json` to build it."
         )
         return issues  # nothing else meaningful without a DB
 
@@ -422,18 +422,18 @@ _SCANNERS = """\
 
 
 def _install_usage() -> str:
-    """Install subcommand usage line, derived from main.build_parser()."""
+    """Install subcommand usage line, derived from cli.build_parser()."""
     try:
-        from main import build_parser
+        from ariadne_mcp.cli import build_parser
         parser = build_parser()
         install = parser._ariadne_subparsers["install"]
-        install.prog = "python3 main.py install"
+        install.prog = "ariadne-mcp install"
         usage = install.format_usage().strip()
         if usage.lower().startswith("usage:"):
             usage = usage[6:].strip()
         return " ".join(usage.split())
     except Exception:
-        return "python3 main.py install <config> <workspace-dir> [flags]"
+        return "ariadne-mcp install <config> <workspace-dir> [flags]"
 
 
 _HELP_TEMPLATE = """\
@@ -468,7 +468,7 @@ SUPPORTED SCANNERS
 {scanners}
 
 WHY RESULTS MAY BE EMPTY
-  - DB not built yet — run `python3 main.py scan --config ariadne.config.json`
+  - DB not built yet — run `ariadne-mcp scan --config ariadne.config.json`
   - The hosted demo DB only contains a small fictional microservice stack
     (orders-svc, billing-svc, users-svc, gateway, web). Try hints like
     "createOrder", "userProfile", "order-created", "refundPayment".
@@ -519,7 +519,7 @@ def _extract_cluster_node_names(results: list[dict]) -> list[dict]:
 
 
 async def _query_chains(db, arguments: dict) -> list[TextContent]:
-    from query.query import query
+    from ariadne_mcp.query.query import query
 
     hint = arguments["hint"]
     top_n = int(arguments.get("top_n", 3))
@@ -547,7 +547,7 @@ async def _query_chains(db, arguments: dict) -> list[TextContent]:
 
 
 async def _expand_node(db, arguments: dict) -> list[TextContent]:
-    from query.query import expand
+    from ariadne_mcp.query.query import expand
 
     name = arguments["name"]
     results = expand(db, name)
