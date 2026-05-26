@@ -325,7 +325,7 @@ async def _rescan() -> list[TextContent]:
 
     from ariadne_mcp import cli as _main
     try:
-        summary = _main.run_scan(config_path, _DB_PATH)
+        summary = _main.run_scan(config_path, _DB_PATH, force=True)
     except SystemExit as e:
         return [TextContent(
             type="text",

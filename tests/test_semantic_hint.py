@@ -376,6 +376,33 @@ def test_pluggable_scanner_end_to_end():
         del sys.modules["_e2e_custom_scanner"]
 
 
+def test_scan_defaults_repo_name_from_path_and_infers_scanners():
+    """Repos can omit name/scanners; scan derives both from the repo path/content."""
+    import argparse
+    import json
+    from ariadne_mcp.cli import cmd_scan
+
+    with tempfile.TemporaryDirectory() as workspace:
+        repo_dir = os.path.join(workspace, "orders-svc")
+        _write(os.path.join(repo_dir, "package.json"), "{}")
+        _write(
+            os.path.join(repo_dir, "schema", "order.graphql"),
+            "type Query {\n  orderStatus(id: ID): String\n}\n",
+        )
+        config_path = os.path.join(workspace, "ariadne.config.json")
+        _write(config_path, json.dumps({"repos": [{"path": repo_dir}]}))
+        db_path = os.path.join(workspace, "ariadne.db")
+
+        cmd_scan(argparse.Namespace(config=config_path, db=db_path, force=True))
+
+        db = DB(db_path)
+        try:
+            nodes = db.get_nodes_by_service("orders-svc")
+            assert any(n["raw_name"] == "orderStatus" for n in nodes), nodes
+        finally:
+            db.close()
+
+
 # ──────────────────────────────────────────────
 # 6. Stale-scan warning
 # ──────────────────────────────────────────────
@@ -630,6 +657,105 @@ def test_frontend_rest_stories_file_skipped():
     assert nodes == [], f"Expected no nodes from .stories.tsx, got {nodes}"
 
 
+def test_frontend_rest_endpoint_property_scanned():
+    """App-level SSE wrappers using endpoint: '/path' are scanned."""
+    import tempfile
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
+
+    body = (
+        "export const sendMessageToGeneralAI = () => {\n"
+        "  handleDefaultSSEFetch({\n"
+        "    endpoint: '/v2/assistant/general',\n"
+        "  });\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/components/AIModelGeneral/store.tsx", body)])
+        nodes = scan_frontend_rest(tmp, "ai-tools")
+    assert any(n["path"] == "/v2/assistant/general" for n in nodes), nodes
+    node = next(n for n in nodes if n["path"] == "/v2/assistant/general")
+    assert node["method"] == "POST"
+    assert "assistant" in node["fields"] and "general" in node["fields"]
+
+
+def test_frontend_rest_endpoint_plain_config_not_scanned():
+    """Plain endpoint config objects are not network contracts."""
+    import tempfile
+    from ariadne_mcp.scanner.frontend_rest_scanner import scan_frontend_rest
+
+    body = (
+        "export const apiConfig = {\n"
+        "  endpoint: '/healthcheck',\n"
+        "};\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_frontend_rest_repo(tmp, [("src/config/api.ts", body)])
+        nodes = scan_frontend_rest(tmp, "ai-tools")
+    assert not any(n["path"] == "/healthcheck" for n in nodes), nodes
+
+
+def test_ts_http_outbound_express_route_and_stream_post_scanned():
+    """BFF TS scanner captures inbound Express routes and outbound streamPost calls."""
+    import tempfile
+    from ariadne_mcp.scanner.ts_http_outbound_scanner import scan_ts_http_outbound
+
+    route = "router.post('/v2/assistant/general', assistantGeneral)\n"
+    ds = (
+        "export class AIDsImpl extends RestDs {\n"
+        "  constructor() { this.setBaseURL(settings.aiAdapter.host) }\n"
+        "  async assistantGeneral(params, res) {\n"
+        "    await this.streamPost('/v2/assistant/general', params, res)\n"
+        "  }\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        _write(os.path.join(tmp, "src", "rest", "ai", "routes.ts"), route)
+        _write(os.path.join(tmp, "src", "rest", "ai", "aiDsImpl.ts"), ds)
+        nodes = scan_ts_http_outbound(
+            tmp,
+            "falcon-beak",
+            settings_key_map={"aiAdapter": "ai-adapter"},
+            url_prefix_map={},
+            client_name_map={},
+        )
+    assert any(n["type"] == "http_endpoint" and n["path"] == "/v2/assistant/general" for n in nodes), nodes
+    outbound = [
+        n for n in nodes
+        if n["type"] == "backend_client_call"
+        and n["path"] == "/v2/assistant/general"
+        and n["target_service"] == "ai-adapter"
+    ]
+    assert outbound, nodes
+    assert "assistant" in outbound[0]["fields"] and "general" in outbound[0]["fields"]
+
+
+def test_anchor_scoring_ignores_service_tokens_when_business_tokens_exist():
+    """A hint containing service name + business words should not anchor on service words alone."""
+    from ariadne_mcp.scoring.engine import find_anchors
+
+    nodes = [
+        {
+            "id": "ai-tools::frontend::query::aiToolsUserSetting",
+            "type": "frontend_query",
+            "service": "ai-tools",
+            "tokens": ["ai", "tools", "user", "setting"],
+            "field_tokens": [],
+        },
+        {
+            "id": "falcon-beak::http::POST::/v2/assistant/general::assistantGeneral",
+            "type": "http_endpoint",
+            "service": "falcon-beak",
+            "tokens": ["assistant", "general"],
+            "field_tokens": ["v2", "assistant", "general"],
+        },
+    ]
+
+    anchors = find_anchors(nodes, "ai-tools chatbot assistant general")
+    anchor_ids = [n["id"] for n in anchors]
+    assert nodes[1]["id"] in anchor_ids
+    assert nodes[0]["id"] not in anchor_ids
+
+
 # ──────────────────────────────────────────────
 # Rescan MCP tool — end-to-end
 # ──────────────────────────────────────────────
@@ -758,6 +884,7 @@ if __name__ == "__main__":
         test_resolve_scanner_unknown,
         test_resolve_scanner_dotted_path,
         test_pluggable_scanner_end_to_end,
+        test_scan_defaults_repo_name_from_path_and_infers_scanners,
         test_get_oldest_scanned_at_empty,
         test_get_oldest_scanned_at_single,
         test_get_oldest_scanned_at_multiple,
@@ -769,6 +896,10 @@ if __name__ == "__main__":
         test_frontend_rest_test_file_skipped,
         test_frontend_rest_dts_file_skipped,
         test_frontend_rest_stories_file_skipped,
+        test_frontend_rest_endpoint_property_scanned,
+        test_frontend_rest_endpoint_plain_config_not_scanned,
+        test_ts_http_outbound_express_route_and_stream_post_scanned,
+        test_anchor_scoring_ignores_service_tokens_when_business_tokens_exist,
         test_rescan_missing_manifest_returns_error,
         test_rescan_refreshes_index_and_invalidates_cache,
     ]

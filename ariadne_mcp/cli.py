@@ -17,6 +17,7 @@ import json
 import sys
 import os
 import subprocess
+from pathlib import Path
 from datetime import datetime, timezone
 
 DEFAULT_DB = os.path.join(os.path.dirname(__file__), "ariadne.db")
@@ -212,6 +213,139 @@ def _resolve_path(base: str, p: str) -> str:
     return os.path.abspath(os.path.join(base, p))
 
 
+def _repo_name_from_path(path: str) -> str:
+    return Path(os.path.normpath(os.path.expanduser(path))).name
+
+
+def _is_noise_path(path: str) -> bool:
+    return any(
+        seg in path
+        for seg in (
+            "/node_modules/",
+            "/dist/",
+            "/build/",
+            "/coverage/",
+            "/__tests__/",
+            "/.next/",
+        )
+    )
+
+
+def _has_file(repo_path: str, suffixes: tuple[str, ...], name_contains: str | None = None) -> bool:
+    root = Path(repo_path)
+    for f in root.rglob("*"):
+        if not f.is_file():
+            continue
+        p = str(f)
+        if _is_noise_path(p):
+            continue
+        if suffixes and not f.name.endswith(suffixes):
+            continue
+        if name_contains and name_contains not in f.name:
+            continue
+        return True
+    return False
+
+
+def _file_text_contains(repo_path: str, suffixes: tuple[str, ...], needles: tuple[str, ...]) -> bool:
+    root = Path(repo_path)
+    for f in root.rglob("*"):
+        if not f.is_file():
+            continue
+        p = str(f)
+        if _is_noise_path(p):
+            continue
+        if suffixes and not f.name.endswith(suffixes):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        if any(n in text for n in needles):
+            return True
+    return False
+
+
+def _infer_scanners(repo_path: str) -> list[str]:
+    """Infer a conservative scanner list for configs that omit `scanners`.
+
+    Explicit scanner lists still win. This is a compatibility path for
+    work-side configs that declare repos by path only.
+    """
+    scanners: list[str] = []
+
+    if _has_file(repo_path, (".graphql", ".gql")):
+        scanners.append("graphql")
+
+    has_java_or_kotlin = _has_file(repo_path, (".java", ".kt"))
+    if has_java_or_kotlin:
+        if _has_file(repo_path, (".java", ".kt"), "Controller") or _has_file(repo_path, (".kt",), "Router"):
+            scanners.append("http")
+        if _file_text_contains(
+            repo_path,
+            (".java", ".kt", ".yml", ".yaml", ".properties"),
+            ("KafkaListener", "KafkaTemplate", "kafka."),
+        ):
+            scanners.append("kafka")
+        if _file_text_contains(repo_path, (".java", ".kt"), ("RestClient", "RestTemplate", "WebClient")):
+            scanners.append("backend_clients")
+
+    has_ts = _has_file(repo_path, (".ts", ".tsx"))
+    if has_ts:
+        if _file_text_contains(repo_path, (".ts", ".tsx"), ("gql`", "graphql`")):
+            scanners.append("frontend_graphql")
+        if _file_text_contains(
+            repo_path,
+            (".ts", ".tsx"),
+            ("axiosRequest.", "fetch(", "endpoint:", "endpoint ="),
+        ):
+            scanners.append("frontend_rest")
+        if _file_text_contains(
+            repo_path,
+            (".ts",),
+            ("settings.", "router.get(", "router.post(", "streamPost(", "this.post("),
+        ):
+            scanners.append("ts_http_outbound")
+
+    if _file_text_contains(repo_path, (".js", ".ts"), ("cube(`", "cube('", 'cube("')):
+        scanners.append("cube")
+
+    return list(dict.fromkeys(scanners))
+
+
+def _normalize_repo_entry(entry: dict, cfg_dir: str) -> dict:
+    """Return a repo config entry with default name/scanners filled in."""
+    if not isinstance(entry, dict):
+        raise ValueError("repo entry must be an object")
+    if not entry.get("path") or not isinstance(entry.get("path"), str):
+        raise ValueError("repo entry is missing a string `path`")
+
+    normalized = dict(entry)
+    if not normalized.get("name"):
+        normalized["name"] = _repo_name_from_path(normalized["path"])
+
+    abs_path = _resolve_path(cfg_dir, normalized["path"])
+    if "scanners" not in normalized or normalized.get("scanners") is None:
+        normalized["scanners"] = _infer_scanners(abs_path)
+
+    return normalized
+
+
+def _normalize_repo_entries(repos: list[dict], cfg_dir: str) -> list[dict]:
+    return [_normalize_repo_entry(entry, cfg_dir) for entry in repos]
+
+
+def _fields_for_normalize(node: dict) -> list[str]:
+    fields = list(node.get("fields") or [])
+    path = node.get("path")
+    if path:
+        fields.append(path)
+    target = node.get("target_service")
+    if target:
+        fields.append(target)
+    return fields
+
+
 def _git_head_hash(repo_path: str) -> str | None:
     """Return current HEAD commit hash, or None if not a git repo / git missing."""
     try:
@@ -269,7 +403,7 @@ def cmd_scan(args):
     force = getattr(args, "force", False)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    repos = cfg.get("repos", [])
+    repos = _normalize_repo_entries(cfg.get("repos", []), cfg_dir)
     if not repos:
         print("ERROR: config has no repos.", file=sys.stderr)
         sys.exit(1)
@@ -340,7 +474,7 @@ def cmd_scan(args):
         # Normalize + upsert immediately so repo state reflects reality
         # even if a later repo fails.
         for node in repo_new_nodes:
-            norm = normalize(node["raw_name"], node.get("fields", []))
+            norm = normalize(node["raw_name"], _fields_for_normalize(node))
             node["tokens"] = norm["tokens"]
             node["field_tokens"] = norm["field_tokens"]
             db.upsert_node(node, norm["tokens"], norm["field_tokens"])
@@ -369,7 +503,7 @@ def cmd_scan(args):
     # Re-normalize reused nodes too so IDF sees consistent token lists.
     for node in enriched:
         if not node.get("tokens") or not node.get("field_tokens"):
-            norm = normalize(node["raw_name"], node.get("fields", []))
+            norm = normalize(node["raw_name"], _fields_for_normalize(node))
             node["tokens"] = norm["tokens"]
             node["field_tokens"] = norm["field_tokens"]
 
@@ -384,7 +518,14 @@ def cmd_scan(args):
     print("[4/4] Scoring pairs (full re-score — edges depend on global IDF)...")
     db.delete_all_edges()
     bff_services_list = cfg.get("bff_services")
-    bff_services = set(bff_services_list) if bff_services_list else None
+    if bff_services_list:
+        bff_services = set(bff_services_list)
+    else:
+        bff_services = {
+            n.get("service")
+            for n in enriched
+            if str(n.get("type", "")).startswith("graphql_") and n.get("service")
+        }
     edges = score_all_pairs(enriched, min_score=0.12, bff_services=bff_services)
     print(f"  Generated {len(edges)} edges above threshold")
 
@@ -648,17 +789,23 @@ def cmd_config_validate(args):
     errors: list[str] = []
     warnings: list[str] = []
 
-    repos = cfg.get("repos", [])
+    raw_repos = cfg.get("repos", [])
+    repos = raw_repos
     if not isinstance(repos, list) or not repos:
         errors.append("`repos` must be a non-empty array")
         print_issues(errors, warnings)
         sys.exit(1)
 
     declared_names = set()
-    for i, entry in enumerate(repos):
+    for i, raw_entry in enumerate(repos):
         loc = f"repos[{i}]"
-        if not isinstance(entry, dict):
+        if not isinstance(raw_entry, dict):
             errors.append(f"{loc}: not an object")
+            continue
+        try:
+            entry = _normalize_repo_entry(raw_entry, cfg_dir)
+        except ValueError as exc:
+            errors.append(f"{loc}: {exc}")
             continue
         name = entry.get("name")
         path = entry.get("path")
@@ -710,29 +857,10 @@ def cmd_config_validate(args):
                 ctm = sc_opts.get("client_target_map", {})
                 if not isinstance(ctm, dict):
                     errors.append(f"{sc_loc}: `client_target_map` must be an object")
-                else:
-                    for client, target in ctm.items():
-                        # Target must be a repo we declare in this same config
-                        # (otherwise the edge has no landing point).
-                        if target not in declared_names and target not in {
-                            e.get("name") for e in repos if isinstance(e, dict)
-                        }:
-                            warnings.append(
-                                f"{sc_loc}: client_target_map['{client}'] → "
-                                f"'{target}' is not a declared repo"
-                            )
             if sc_name == "frontend_rest":
                 bcs = sc_opts.get("base_class_service", {})
                 if not isinstance(bcs, dict):
                     errors.append(f"{sc_loc}: `base_class_service` must be an object")
-                else:
-                    declared = {e.get("name") for e in repos if isinstance(e, dict)}
-                    for cls, target in bcs.items():
-                        if target not in declared:
-                            warnings.append(
-                                f"{sc_loc}: base_class_service['{cls}'] → "
-                                f"'{target}' is not a declared repo"
-                            )
 
     print_issues(errors, warnings)
     if errors:

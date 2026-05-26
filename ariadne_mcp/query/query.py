@@ -69,14 +69,21 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
             print(f"[ariadne] boost error (non-fatal): {_boost_err}", file=sys.stderr)
 
     enriched = []
+    seen_result_sets: set[frozenset[str]] = set()
     for c in clusters:
-        nodes_info = []
+        raw_nodes = []
         for nid in c["node_ids"]:
             n = node_map.get(nid)
             if not n:
                 continue
-            display = _format_node(n)
-            nodes_info.append(display)
+            raw_nodes.append(n)
+
+        raw_nodes = _filter_nodes_for_hint(raw_nodes, all_nodes, hint)
+        result_set = frozenset(n["id"] for n in raw_nodes)
+        if result_set in seen_result_sets:
+            continue
+        seen_result_sets.add(result_set)
+        nodes_info = [_format_node(n) for n in raw_nodes]
         # Trim: max 2 per (service, type), overall max 12
         nodes_info = _trim_cluster_nodes(nodes_info)
 
@@ -184,6 +191,40 @@ def _trim_cluster_nodes(nodes: list[dict], max_per_bucket: int = 2, max_total: i
         if len(result) >= max_total:
             break
     return result
+
+
+def _effective_hint_tokens(nodes: list[dict], hint: str) -> set[str]:
+    hint_tokens = set(split_tokens(hint))
+    service_tokens = set()
+    for node in nodes:
+        svc = node.get("service")
+        if svc:
+            service_tokens.update(split_tokens(svc))
+    non_service_tokens = hint_tokens - service_tokens
+    return non_service_tokens or hint_tokens
+
+
+def _hint_match_count(node: dict, hint_tokens: set[str]) -> int:
+    return len(hint_tokens & (set(node.get("tokens", [])) | set(node.get("field_tokens", []))))
+
+
+def _filter_nodes_for_hint(cluster_nodes: list[dict], all_nodes: list[dict], hint: str) -> list[dict]:
+    """For multi-word hints, hide nodes that only match a single generic token."""
+    hint_tokens = _effective_hint_tokens(all_nodes, hint)
+    min_matches = min(2, len(hint_tokens))
+    if min_matches <= 1:
+        return cluster_nodes
+
+    strong = [
+        n for n in cluster_nodes
+        if _hint_match_count(n, hint_tokens) >= min_matches
+    ]
+    # Only filter when the cluster has a meaningful strong core. If filtering
+    # would collapse the cluster to one node, keep the original neighborhood.
+    if len(strong) >= 2:
+        strong_ids = {n["id"] for n in strong}
+        return [n for n in cluster_nodes if n["id"] in strong_ids]
+    return cluster_nodes
 
 
 def _format_node(n: dict) -> dict:
