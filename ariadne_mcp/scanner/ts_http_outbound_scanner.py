@@ -104,6 +104,19 @@ _FETCH_CALL = re.compile(
     r'(?<![\w.])fetch\s*\(\s*([\'"`]([^\'"`\n]+)[\'"`]|\w+)',
 )
 
+# this.post('/path'), this.streamPost('/path'), etc. Common in REST DS wrappers.
+_THIS_HTTP_CALL = re.compile(
+    r'this\.(streamPost|get|post|put|delete|patch)\s*(?:<[^>]*>)?\s*\('
+    r'\s*[\'"`](\/[^\'"`\n]+)[\'"`]',
+    re.IGNORECASE,
+)
+
+# Express-style route registration: router.post('/path', handler)
+_EXPRESS_ROUTE = re.compile(
+    r'\brouter\.(get|post|put|delete|patch)\s*\(\s*[\'"`](\/[^\'"`\n]*)[\'"`]\s*,\s*(\w+)',
+    re.IGNORECASE,
+)
+
 # new XClient().method() — typed client instantiation
 _CLIENT_INSTANTIATION = re.compile(
     r'new\s+(\w*[Cc]lient\w*)\s*\('
@@ -165,6 +178,39 @@ def _nearest_class_name(text: str, match_pos: int) -> str | None:
     return best_name
 
 
+def _nearest_function_name(text: str, match_pos: int) -> str | None:
+    """Return the nearest function/method declaration before match_pos."""
+    snippet = text[:match_pos]
+    patterns = [
+        r'(?:async\s+)?(\w+)\s*\([^)]*\)\s*(?::\s*[^={]+)?\s*\{',
+        r'(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+)?=>\s*\{',
+    ]
+    best: tuple[int, str] | None = None
+    for pat in patterns:
+        for m in re.finditer(pat, snippet, re.DOTALL):
+            if best is None or m.start() > best[0]:
+                best = (m.start(), m.group(1))
+    return best[1] if best else None
+
+
+def _method_for_this_call(name: str) -> str:
+    lower = name.lower()
+    if lower == "streampost":
+        return "POST"
+    return lower.upper()
+
+
+def _path_fields(path: str | None) -> list[str]:
+    if not path:
+        return []
+    clean = path.split("?")[0]
+    return [
+        seg
+        for seg in re.split(r'[/{}:$]+', clean)
+        if seg and not seg.startswith("$")
+    ]
+
+
 def _scan_file(
     text: str,
     source_file: str,
@@ -183,10 +229,12 @@ def _scan_file(
     # --- 1. settings.X.host pattern (Apollo DS subclass) ---
     # Use the class declaration nearest *before* each settings match so that
     # files with multiple DS classes attribute each baseURL to the right class.
+    class_targets: dict[str, str] = {}
     for m in _SETTINGS_BASE_URL.finditer(text):
         settings_key = m.group(1)
         target_service = _resolve_settings_key(settings_key, settings_key_map, service)
         cls = _nearest_class_name(text, m.start()) or fallback_class_name
+        class_targets[cls] = target_service
         nodes.append(_make_node(
             service=service,
             name=cls,
@@ -194,6 +242,19 @@ def _scan_file(
             source_file=source_file,
             method=None,
             path=None,
+        ))
+
+    # --- 1b. Express route declarations are inbound HTTP endpoints for this service. ---
+    for m in _EXPRESS_ROUTE.finditer(text):
+        http_method = m.group(1).upper()
+        path = m.group(2)
+        handler = m.group(3)
+        nodes.append(_make_route_node(
+            service=service,
+            name=handler,
+            source_file=source_file,
+            method=http_method,
+            path=path,
         ))
 
     # --- 2a. axios method-form calls (axios.get/post/etc.) ---
@@ -237,6 +298,22 @@ def _scan_file(
             path=url or None,
         ))
 
+    # --- 3b. RESTDataSource wrapper calls: this.streamPost('/path', ...). ---
+    for m in _THIS_HTTP_CALL.finditer(text):
+        call = m.group(1)
+        path = m.group(2)
+        cls = _nearest_class_name(text, m.start()) or fallback_class_name
+        method_name = _nearest_function_name(text, m.start()) or cls
+        target_service = class_targets.get(cls)
+        nodes.append(_make_node(
+            service=service,
+            name=f"{cls}.{method_name}",
+            target_service=target_service,
+            source_file=source_file,
+            method=_method_for_this_call(call),
+            path=path,
+        ))
+
     # --- 4. typed client instantiation ---
     for m in _CLIENT_INSTANTIATION.finditer(text):
         client_cls = m.group(1)
@@ -271,7 +348,28 @@ def _make_node(
         "service": service,
         "target_service": target_service,  # may be None
         "source_file": source_file,
-        "fields": [tgt_tag],
+        "fields": [tgt_tag] + _path_fields(path),
+        "method": method,
+        "path": path,
+    }
+
+
+def _make_route_node(
+    service: str,
+    name: str,
+    source_file: str,
+    method: str,
+    path: str,
+) -> dict:
+    node_id = f"{service}::http::{method}::{path}::{name}"
+    return {
+        "id": node_id,
+        "type": "http_endpoint",
+        "raw_name": name,
+        "service": service,
+        "target_service": None,
+        "source_file": source_file,
+        "fields": _path_fields(path),
         "method": method,
         "path": path,
     }

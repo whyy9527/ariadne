@@ -254,6 +254,24 @@ def score_all_pairs(
     return edges
 
 
+def _service_tokens(nodes: list[dict]) -> set[str]:
+    tokens: set[str] = set()
+    for node in nodes:
+        svc = node.get("service")
+        if svc:
+            tokens.update(split_tokens(svc))
+    return tokens
+
+
+def _effective_hint_tokens(nodes: list[dict], query_hint: str) -> set[str]:
+    """Prefer business tokens over repo/service-name tokens when both exist."""
+    hint_tokens = set(split_tokens(query_hint))
+    if not hint_tokens:
+        return set()
+    non_service_tokens = hint_tokens - _service_tokens(nodes)
+    return non_service_tokens or hint_tokens
+
+
 def _node_hint_score(node: dict, hint_tokens: set) -> float:
     """How well does this node match the hint? Returns 0-1."""
     nt = set(node.get("tokens", []))
@@ -265,10 +283,30 @@ def _node_hint_score(node: dict, hint_tokens: set) -> float:
     return name_jac * 0.75 + field_jac * 0.25
 
 
+def _node_hint_match_count(node: dict, hint_tokens: set) -> int:
+    nt = set(node.get("tokens", []))
+    nf = set(node.get("field_tokens", []))
+    return len(hint_tokens & (nt | nf))
+
+
 def find_anchors(nodes: list[dict], query_hint: str, top_n: int = 30) -> list[dict]:
     """Find anchor nodes: those with meaningful direct relevance to the query hint."""
-    hint_tokens = set(split_tokens(query_hint))
+    hint_tokens = _effective_hint_tokens(nodes, query_hint)
     scored = [(n, _node_hint_score(n, hint_tokens)) for n in nodes if n.get("tokens")]
+
+    # Multi-word hints usually express intent through the business words, not
+    # through a single generic token like "assistant" or "task". If any node
+    # covers at least two effective hint tokens, prefer those as anchors.
+    min_matches = min(2, len(hint_tokens))
+    if min_matches > 1:
+        multi_match = [
+            (n, s)
+            for n, s in scored
+            if _node_hint_match_count(n, hint_tokens) >= min_matches
+        ]
+        if multi_match:
+            scored = multi_match
+
     scored.sort(key=lambda x: -x[1])
     anchors = [n for n, s in scored if s >= 0.15][:top_n]
     if not anchors:
@@ -408,13 +446,24 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
         confidence = min(confidence, 1.0)
 
         if query_hint:
-            hint_tokens = set(split_tokens(query_hint))
+            hint_tokens = _effective_hint_tokens(nodes, query_hint)
+            cluster_tokens = set()
+            for nid in c_nodes:
+                cluster_tokens.update(node_map[nid].get("tokens", []))
+                cluster_tokens.update(node_map[nid].get("field_tokens", []))
+            coverage = len(hint_tokens & cluster_tokens) / max(len(hint_tokens), 1)
+            max_relevance = max(
+                (_node_hint_score(node_map[nid], hint_tokens) for nid in c_nodes),
+                default=0.0,
+            )
             direct = sum(
                 1 for nid in c_nodes
                 if hint_tokens & set(node_map[nid].get("tokens", []))
             )
-            hint_boost = min(direct / max(len(c_nodes), 1) * 0.2, 0.2)
-            confidence = min(round(confidence + hint_boost, 3), 1.0)
+            hint_boost = min(direct / max(len(c_nodes), 1) * 0.1, 0.1)
+            confidence = confidence * (0.65 + 0.35 * coverage)
+            confidence += min(max_relevance * 0.25, 0.25) + hint_boost
+            confidence = min(round(confidence, 3), 1.0)
 
         # Sort nodes within cluster: anchors first, then by service diversity
         anchor_set = {a["id"] for a in anchors}

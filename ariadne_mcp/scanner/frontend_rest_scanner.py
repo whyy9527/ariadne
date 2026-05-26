@@ -114,7 +114,28 @@ def _parse_rest_calls(text: str, caller_service: str, target_service: str, sourc
         method_name = _find_enclosing_method(text, m.start())
         nodes.append(_make_node("GET", path, method_name, caller_service, target_service, source_file))
 
+    # 3. Common app wrapper shape: handleDefaultSSEFetch({ endpoint: '/path', ... }).
+    endpoint_pattern = re.compile(
+        r'\bendpoint\s*(?::|=)\s*[`\'"](\/[^`\'"]+)[`\'"]',
+    )
+    for m in endpoint_pattern.finditer(text):
+        if not _is_endpoint_in_network_wrapper(text, m.start()):
+            continue
+        path = m.group(1)
+        method_name = _find_enclosing_method(text, m.start())
+        nodes.append(_make_node("POST", path, method_name, caller_service, target_service, source_file))
+
     return nodes
+
+
+def _is_endpoint_in_network_wrapper(text: str, pos: int) -> bool:
+    """Only treat endpoint properties as REST calls inside known wrapper calls."""
+    prefix = text[max(0, pos - 800):pos]
+    wrappers = (
+        "handleDefaultSSEFetch",
+        "fetchSSE",
+    )
+    return any(wrapper in prefix for wrapper in wrappers)
 
 
 def _find_enclosing_method(text: str, pos: int) -> str:
@@ -136,6 +157,7 @@ def _make_node(method: str, path: str, method_name: str, caller: str, target: st
     clean_path = re.sub(r'\$\{[^}]+\}', '{param}', path)
     clean_path = re.sub(r':\w+', '{param}', clean_path)
     clean_path = clean_path.split('?')[0]  # strip query string
+    path_segments = [seg for seg in clean_path.split("/") if seg and not seg.startswith("{")]
 
     node_id = f"{caller}::rest::{method}::{clean_path}::{method_name}"
     return {
@@ -145,7 +167,7 @@ def _make_node(method: str, path: str, method_name: str, caller: str, target: st
         "service": caller,
         "target_service": target,
         "source_file": source_file,
-        "fields": [v for group in path_vars for v in group if v],
+        "fields": [v for group in path_vars for v in group if v] + path_segments,
         "method": method,
         "path": clean_path,
         "meta": {"target_service": target},
