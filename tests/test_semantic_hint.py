@@ -403,6 +403,104 @@ def test_scan_defaults_repo_name_from_path_and_infers_scanners():
             db.close()
 
 
+def test_scan_prunes_repo_removed_from_config():
+    """Old nodes/repo_state for services no longer in config are removed."""
+    import argparse
+    import json
+    from datetime import datetime, timezone, timedelta
+    from ariadne_mcp.cli import cmd_scan
+    from ariadne_mcp.server import _build_stale_warning
+
+    with tempfile.TemporaryDirectory() as workspace:
+        repo_dir = os.path.join(workspace, "active-svc")
+        _write(
+            os.path.join(repo_dir, "schema", "active.graphql"),
+            "type Query {\n  activeStatus: String\n}\n",
+        )
+        config_path = os.path.join(workspace, "ariadne.config.json")
+        _write(config_path, json.dumps({
+            "repos": [{"name": "active-svc", "path": repo_dir, "scanners": ["graphql"]}]
+        }))
+        db_path = os.path.join(workspace, "ariadne.db")
+
+        db = DB(db_path)
+        try:
+            db.upsert_node({
+                "id": "removed-svc::gql::Query::oldStatus",
+                "type": "graphql_query",
+                "raw_name": "oldStatus",
+                "service": "removed-svc",
+            }, ["old", "status"], [])
+            stale_ts = (
+                datetime.now(timezone.utc) - timedelta(days=10)
+            ).isoformat(timespec="seconds")
+            db.upsert_repo_state("removed-svc", "oldhash", stale_ts)
+            db.commit()
+        finally:
+            db.close()
+
+        cmd_scan(argparse.Namespace(config=config_path, db=db_path, force=False))
+
+        db = DB(db_path)
+        try:
+            assert db.get_repo_state("removed-svc") is None
+            assert db.get_nodes_by_service("removed-svc") == []
+            assert _build_stale_warning(db) is None
+        finally:
+            db.close()
+
+
+def test_force_scan_prunes_repo_with_missing_path():
+    """Force rescan treats a missing configured repo as removed from the index."""
+    import argparse
+    import json
+    from datetime import datetime, timezone, timedelta
+    from ariadne_mcp.cli import cmd_scan
+    from ariadne_mcp.server import _build_stale_warning
+
+    with tempfile.TemporaryDirectory() as workspace:
+        repo_dir = os.path.join(workspace, "active-svc")
+        _write(
+            os.path.join(repo_dir, "schema", "active.graphql"),
+            "type Query {\n  activeStatus: String\n}\n",
+        )
+        missing_dir = os.path.join(workspace, "missing-svc")
+        config_path = os.path.join(workspace, "ariadne.config.json")
+        _write(config_path, json.dumps({
+            "repos": [
+                {"name": "active-svc", "path": repo_dir, "scanners": ["graphql"]},
+                {"name": "missing-svc", "path": missing_dir, "scanners": ["graphql"]},
+            ]
+        }))
+        db_path = os.path.join(workspace, "ariadne.db")
+
+        db = DB(db_path)
+        try:
+            db.upsert_node({
+                "id": "missing-svc::gql::Query::oldStatus",
+                "type": "graphql_query",
+                "raw_name": "oldStatus",
+                "service": "missing-svc",
+            }, ["old", "status"], [])
+            stale_ts = (
+                datetime.now(timezone.utc) - timedelta(days=10)
+            ).isoformat(timespec="seconds")
+            db.upsert_repo_state("missing-svc", "oldhash", stale_ts)
+            db.commit()
+        finally:
+            db.close()
+
+        cmd_scan(argparse.Namespace(config=config_path, db=db_path, force=True))
+
+        db = DB(db_path)
+        try:
+            assert db.get_repo_state("missing-svc") is None
+            assert db.get_nodes_by_service("missing-svc") == []
+            assert _build_stale_warning(db) is None
+        finally:
+            db.close()
+
+
 # ──────────────────────────────────────────────
 # 6. Stale-scan warning
 # ──────────────────────────────────────────────
@@ -885,6 +983,8 @@ if __name__ == "__main__":
         test_resolve_scanner_dotted_path,
         test_pluggable_scanner_end_to_end,
         test_scan_defaults_repo_name_from_path_and_infers_scanners,
+        test_scan_prunes_repo_removed_from_config,
+        test_force_scan_prunes_repo_with_missing_path,
         test_get_oldest_scanned_at_empty,
         test_get_oldest_scanned_at_single,
         test_get_oldest_scanned_at_multiple,

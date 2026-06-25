@@ -414,11 +414,39 @@ def cmd_scan(args):
     enriched: list[dict] = []
     any_rescanned = False
 
+    configured_names = {entry["name"] for entry in repos}
+    indexed_names = set(db.get_repo_state_names()) | set(db.get_indexed_services())
+    for stale_name in sorted(indexed_names - configured_names):
+        removed = db.delete_nodes_by_service(stale_name)
+        state_removed = db.delete_repo_state(stale_name)
+        if removed or state_removed:
+            any_rescanned = True
+            state_tag = " + state" if state_removed else ""
+            print(
+                f"  {stale_name}: PRUNE "
+                f"(removed from config; dropped {removed} nodes{state_tag})"
+            )
+
+    if any_rescanned:
+        db.commit()
+
     for entry in repos:
         name = entry["name"]
         path = _resolve_path(cfg_dir, entry["path"])
         scanners = entry.get("scanners", [])
         if not os.path.isdir(path):
+            if force:
+                removed = db.delete_nodes_by_service(name)
+                state_removed = db.delete_repo_state(name)
+                if removed or state_removed:
+                    any_rescanned = True
+                    db.commit()
+                    state_tag = " + state" if state_removed else ""
+                    print(
+                        f"  {name}: PRUNE "
+                        f"(not found at {path}; dropped {removed} nodes{state_tag})"
+                    )
+                    continue
             print(f"  {name}: SKIP (not found at {path})")
             continue
 

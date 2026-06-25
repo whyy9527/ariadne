@@ -153,6 +153,12 @@ class DB:
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def get_indexed_services(self) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT service FROM nodes WHERE service IS NOT NULL"
+        ).fetchall()
+        return [r["service"] for r in rows]
+
     def delete_nodes_by_service(self, service: str) -> int:
         cur = self.conn.execute("DELETE FROM nodes WHERE service=?", (service,))
         return cur.rowcount
@@ -165,6 +171,14 @@ class DB:
             "SELECT name, git_hash, scanned_at FROM repo_state WHERE name=?", (name,)
         ).fetchone()
         return dict(row) if row else None
+
+    def get_repo_state_names(self) -> list[str]:
+        rows = self.conn.execute("SELECT name FROM repo_state").fetchall()
+        return [r["name"] for r in rows]
+
+    def delete_repo_state(self, name: str) -> int:
+        cur = self.conn.execute("DELETE FROM repo_state WHERE name=?", (name,))
+        return cur.rowcount
 
     def upsert_repo_state(self, name: str, git_hash: str | None, scanned_at: str):
         self.conn.execute(
