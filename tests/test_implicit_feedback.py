@@ -23,12 +23,21 @@ def _make_fdb(path: str):
     return FeedbackDB(path)
 
 
-def _make_pending_entry(hint: str, cluster_node_names: list[set], ts: float = None):
+def _make_pending_entry(
+    hint: str,
+    cluster_node_names: list[set],
+    ts: float = None,
+    cluster_node_ids: list[list[str]] = None,
+):
     """Build a fake _PendingQueries entry."""
     if ts is None:
         ts = time.time()
     clusters = [
-        {"rank": i + 1, "node_names": names}
+        {
+            "rank": i + 1,
+            "node_names": names,
+            "node_ids": (cluster_node_ids or [[] for _ in cluster_node_names])[i],
+        }
         for i, names in enumerate(cluster_node_names)
     ]
     return {"hint": hint, "ts": ts, "clusters": clusters}
@@ -129,6 +138,7 @@ def test_extract_cluster_node_names_basic():
     assert clusters[0]["rank"] == 1
     assert "createorder" in clusters[0]["node_names"]
     assert "order-created" in clusters[0]["node_names"]
+    assert clusters[0]["node_ids"] == ["gw::gql::m::createOrder", "kafka::topic::order-created"]
 
 
 # ──────────────────────────────────────────────
@@ -156,6 +166,7 @@ def test_implicit_feedback_written_on_expand_match():
         entry = _make_pending_entry(
             hint="createOrder",
             cluster_node_names=[{"createorder", "gw::gql::m::createorder"}],
+            cluster_node_ids=[["gw::gql::m::createOrder"]],
         )
         mcp_server._PendingQueries.append(entry)
 
@@ -171,16 +182,16 @@ def test_implicit_feedback_written_on_expand_match():
                 continue
             for cluster in e["clusters"]:
                 if any(name_lower in n or n in name_lower for n in cluster["node_names"]):
-                    matched.append((e, cluster["rank"]))
+                    matched.append((e, cluster))
                     break
 
         assert len(matched) == 1, "Should have matched one pending entry"
-        hint_entry, rank = matched[0]
+        hint_entry, cluster = matched[0]
 
         fdb.log(
             hint=hint_entry["hint"],
-            cluster_rank=rank,
-            node_ids=[],
+            cluster_rank=cluster["rank"],
+            node_ids=list(cluster.get("node_ids", [])),
             accepted=True,
             source="implicit_expand",
         )
@@ -190,11 +201,12 @@ def test_implicit_feedback_written_on_expand_match():
             pass
 
         assert fdb.count() == 1
-        row = fdb.conn.execute("SELECT hint, cluster_rank, accepted, source FROM feedback").fetchone()
+        row = fdb.conn.execute("SELECT hint, cluster_rank, node_ids, accepted, source FROM feedback").fetchone()
         assert row[0] == "createOrder"
         assert row[1] == 1
-        assert row[2] == 1
-        assert row[3] == "implicit_expand"
+        assert row[2] == '["gw::gql::m::createOrder"]'
+        assert row[3] == 1
+        assert row[4] == "implicit_expand"
 
         # Pending entry should be removed to avoid double-counting
         assert len(mcp_server._PendingQueries) == 0
@@ -302,6 +314,45 @@ def test_pending_deque_cap():
     assert q[0]["hint"] == f"hint5"
 
 
+def test_rate_result_infers_node_ids_from_recent_cluster_rank():
+    """Manual feedback can omit node_ids when hint + cluster_rank identify a recent query."""
+    import asyncio
+    import json
+    from ariadne_mcp import server as mcp_server
+    from collections import deque
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        fb_path = f.name
+    try:
+        original_pending = mcp_server._PendingQueries
+        mcp_server._PendingQueries = deque(maxlen=mcp_server._PENDING_MAX)
+        mcp_server._PendingQueries.append(
+            _make_pending_entry(
+                hint="createOrder",
+                cluster_node_names=[{"first"}, {"second"}],
+                cluster_node_ids=[["node:FIRST"], ["node:SECOND"]],
+            )
+        )
+
+        fdb = _make_fdb(fb_path)
+        response = asyncio.run(
+            mcp_server._rate_result(
+                fdb,
+                {"hint": "createOrder", "cluster_rank": 2, "accepted": False},
+            )
+        )
+        payload = json.loads(response[0].text)
+        assert payload["node_ids_count"] == 1
+
+        row = fdb.conn.execute("SELECT node_ids, accepted FROM feedback").fetchone()
+        assert row[0] == '["node:SECOND"]'
+        assert row[1] == 0
+        fdb.close()
+    finally:
+        mcp_server._PendingQueries = original_pending
+        os.unlink(fb_path)
+
+
 # ──────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────
@@ -316,6 +367,7 @@ if __name__ == "__main__":
         test_ttl_expired_entries_not_written,
         test_no_match_no_feedback,
         test_pending_deque_cap,
+        test_rate_result_infers_node_ids_from_recent_cluster_rank,
     ]
 
     passed = failed = 0

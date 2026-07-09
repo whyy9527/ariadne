@@ -112,6 +112,24 @@ def test_get_accepted_node_ids_empty_node_ids():
         os.unlink(path)
 
 
+def test_get_node_feedback_counts_positive_and_negative():
+    """Feedback counts keep accepted and rejected judgments separate."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
+    try:
+        fdb = _make_fdb(path)
+        fdb.log("createOrder", 1, ["node:A"], True)
+        fdb.log("createOrder", 1, ["node:A"], False)
+        fdb.log("createOrder", 1, ["node:B"], False)
+
+        counts = fdb.get_node_feedback_counts("createOrder")
+        assert counts["node:A"] == {"accepted": 1, "rejected": 1}
+        assert counts["node:B"] == {"accepted": 0, "rejected": 1}
+        fdb.close()
+    finally:
+        os.unlink(path)
+
+
 def test_get_accepted_node_ids_both_sources():
     """manual and implicit_expand sources both count."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -159,6 +177,54 @@ def test_boost_rerank_lifts_cluster():
     expected_boosted_score = round(0.5 + _BOOST_ALPHA * 4, 6)
     assert abs(clusters[0]["confidence"] - expected_boosted_score) < 1e-9, \
         f"Expected {expected_boosted_score}, got {clusters[0]['confidence']}"
+
+
+def test_feedback_rerank_demotes_rejected_cluster():
+    """Rejected feedback should be able to push a misleading cluster below a peer."""
+    import unittest.mock as mock
+    from ariadne_mcp.query.query import query as q
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
+    try:
+        fdb = _make_fdb(path)
+        fdb.log("createOrder", 1, ["node:BAD"], False)
+
+        fake_db = mock.MagicMock()
+        fake_db.get_token_idf.return_value = {}
+        fake_db.get_all_nodes.return_value = [
+            {
+                "id": "node:BAD",
+                "raw_name": "badCreateOrder",
+                "service": "bad-service",
+                "type": "graphql_mutation",
+                "tokens": ["create", "order"],
+            },
+            {
+                "id": "node:GOOD",
+                "raw_name": "goodCreateOrder",
+                "service": "good-service",
+                "type": "graphql_mutation",
+                "tokens": ["create", "order"],
+            },
+        ]
+        fake_db.get_edges_for_nodes.return_value = []
+
+        clusters = [
+            {"node_ids": ["node:BAD"], "confidence": 0.6},
+            {"node_ids": ["node:GOOD"], "confidence": 0.55},
+        ]
+        with mock.patch("ariadne_mcp.query.query.find_anchors", return_value=[]), \
+             mock.patch("ariadne_mcp.query.query.build_clusters", return_value=clusters), \
+             mock.patch.dict(os.environ, {"ARIADNE_FEEDBACK_BOOST": "1"}):
+            results = q(fake_db, "createOrder", top_n=3, fdb=fdb)
+
+        assert results[0]["nodes"][0]["id"] == "node:GOOD"
+        assert results[1]["nodes"][0]["id"] == "node:BAD"
+        assert results[1]["confidence"] == 0.5
+        fdb.close()
+    finally:
+        os.unlink(path)
 
 
 def test_boost_rerank_no_overlap():
@@ -316,8 +382,10 @@ if __name__ == "__main__":
         test_get_accepted_node_ids_max_age_days,
         test_get_accepted_node_ids_no_match,
         test_get_accepted_node_ids_empty_node_ids,
+        test_get_node_feedback_counts_positive_and_negative,
         test_get_accepted_node_ids_both_sources,
         test_boost_rerank_lifts_cluster,
+        test_feedback_rerank_demotes_rejected_cluster,
         test_boost_rerank_no_overlap,
         test_feature_flag_disabled,
         test_feature_flag_enabled_by_default,

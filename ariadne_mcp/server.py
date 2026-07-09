@@ -95,7 +95,8 @@ _db = None
 _fdb = None
 
 # ── Implicit feedback: pending query cache ─────────────────────────────────────
-# Each entry: {"hint": str, "ts": float, "clusters": [{"rank": int, "node_names": set}]}
+# Each entry:
+# {"hint": str, "ts": float, "clusters": [{"rank": int, "node_names": set, "node_ids": list[str]}]}
 _PENDING_TTL = 600          # 10 min — queries older than this are silently dropped
 _PENDING_MAX = 20           # max entries; oldest evicted when cap reached
 _PendingQueries: deque = deque(maxlen=_PENDING_MAX)
@@ -230,7 +231,9 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Record whether Ariadne results were useful. Call this after using "
                 "query_chains or expand_node to log feedback for future improvement. "
-                "Feedback is stored locally in feedback.db and survives DB rebuilds."
+                "If node_ids is omitted after a recent query_chains call, Ariadne "
+                "infers node_ids from hint + cluster_rank. Feedback is stored locally "
+                "in feedback.db and survives DB rebuilds."
             ),
             inputSchema={
                 "type": "object",
@@ -502,20 +505,37 @@ def _build_help_text() -> str:
 def _extract_cluster_node_names(results: list[dict]) -> list[dict]:
     """
     Convert query() result list into a compact structure for pending cache.
-    Returns [{"rank": 1, "node_names": {name, ...}}, ...]
+    Returns [{"rank": 1, "node_names": {name, ...}, "node_ids": [...]}, ...]
     Each cluster captures both the node "name" (raw_name) and "id" fields so
-    expand_node partial-name matching works correctly.
+    expand_node partial-name matching works correctly and implicit feedback can
+    contribute to future reranking.
     """
     clusters = []
     for i, cluster in enumerate(results, 1):
         names = set()
+        node_ids = []
         for node in cluster.get("nodes", []):
             if node.get("name"):
                 names.add(node["name"].lower())
             if node.get("id"):
+                node_ids.append(node["id"])
                 names.add(node["id"].lower())
-        clusters.append({"rank": i, "node_names": names})
+        clusters.append({"rank": i, "node_names": names, "node_ids": node_ids})
     return clusters
+
+
+def _infer_pending_node_ids(hint: str, cluster_rank: int) -> list[str]:
+    """Return node ids from the most recent non-expired pending query cluster."""
+    now = time.time()
+    for entry in reversed(_PendingQueries):
+        if entry.get("hint") != hint:
+            continue
+        if now - entry["ts"] > _PENDING_TTL:
+            continue
+        for cluster in entry.get("clusters", []):
+            if cluster.get("rank") == cluster_rank:
+                return list(cluster.get("node_ids", []))
+    return []
 
 
 async def _query_chains(db, arguments: dict) -> list[TextContent]:
@@ -573,17 +593,17 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
         for cluster in entry["clusters"]:
             # Substring match mirrors expand()'s own partial name logic
             if any(name_lower in n or n in name_lower for n in cluster["node_names"]):
-                matched_hints.append((entry, cluster["rank"]))
+                matched_hints.append((entry, cluster))
                 break  # one cluster match per pending query is enough
 
     if matched_hints:
         fdb = _get_fdb(_FB_PATH)
-        for entry, rank in matched_hints:
+        for entry, cluster in matched_hints:
             try:
                 fdb.log(
                     hint=entry["hint"],
-                    cluster_rank=rank,
-                    node_ids=[],
+                    cluster_rank=cluster["rank"],
+                    node_ids=list(cluster.get("node_ids", [])),
                     accepted=True,
                     source="implicit_expand",
                 )
@@ -613,6 +633,8 @@ async def _rate_result(fdb, arguments: dict) -> list[TextContent]:
     cluster_rank = int(arguments.get("cluster_rank", 1))
     node_ids = arguments.get("node_ids", [])
     accepted = bool(arguments["accepted"])
+    if not node_ids and cluster_rank > 0:
+        node_ids = _infer_pending_node_ids(hint, cluster_rank)
 
     fdb.log(hint=hint, cluster_rank=cluster_rank, node_ids=node_ids, accepted=accepted)
     total = fdb.count()
@@ -621,6 +643,7 @@ async def _rate_result(fdb, arguments: dict) -> list[TextContent]:
         "logged": True,
         "hint": hint,
         "accepted": accepted,
+        "node_ids_count": len(node_ids),
         "total_feedback": total,
     }))]
 

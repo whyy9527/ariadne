@@ -75,18 +75,24 @@ model training, no uploads. `feedback.db` is local per developer.
 
 Every `query_chains` call caches returned clusters for 10 minutes. A
 follow-up `expand_node(name)` that substring-matches a node in a pending
-cluster auto-writes an `accepted=True` row — the expand IS the signal.
+cluster auto-writes an `accepted=True` row with that cluster's node ids —
+the expand IS the signal.
 `rate_result(hint, accepted, ...)` is the manual escape hatch for
-thumbs-down.
+thumbs-down. If `node_ids` is omitted, a recent `hint + cluster_rank`
+match fills them from the pending query cache.
 
 On the next `query()` for the same hint:
 
 ```
-final_score = confidence + 0.15 * sum(prior_accepted_count per node in cluster)
+final_score =
+  confidence
+  + 0.15 * sum(prior_accepted_count per node in cluster)
+  - 0.10 * sum(prior_rejected_count per node in cluster)
 ```
 
 Weight (`0.15`) and decay window (`90 days`) are intentionally
-conservative — lexical confidence still dominates. Disable with
+conservative; rejected feedback is even lighter (`0.10`) to avoid overfitting
+one bad interaction. Lexical confidence still dominates. Disable with
 `export ARIADNE_FEEDBACK_BOOST=0`.
 
 Day-one results are pure lexical ranking; after a few weeks they reflect
@@ -102,7 +108,7 @@ What an AI assistant sees once `install` is done:
 | `expand_node`  | `name` (partial match supported)      | One-hop neighbours of a known node     |
 | `rescan`       | *(none)*                              | Refresh the index in place; git-hash incremental |
 | `show_help`    | *(none)*                              | Setup guide + runtime config diagnostics |
-| `rate_result`  | `hint`, `accepted`, `node_ids`, ...   | Manual thumbs-down (positive feedback is implicit via `expand_node`) |
+| `rate_result`  | `hint`, `accepted`, `cluster_rank`, `node_ids` | Manual feedback; can infer node ids from recent `query_chains` |
 
 ## Re-scan trigger
 

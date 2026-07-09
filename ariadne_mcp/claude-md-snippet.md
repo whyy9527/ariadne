@@ -30,3 +30,5 @@ rate_result(hint="...", cluster_rank=1, node_ids=[...], accepted=true/false)
 
 - `accepted=true`: result helped locate files / understand the chain
 - `accepted=false`: result was irrelevant or misleading
+- If this is feedback for a recent `query_chains` result, `node_ids` may be
+  omitted; Ariadne infers them from `hint + cluster_rank`.

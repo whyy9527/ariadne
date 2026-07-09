@@ -8,9 +8,11 @@ import sys
 from ariadne_mcp.normalizer.normalizer import split_tokens
 from ariadne_mcp.scoring.engine import build_clusters, find_anchors
 
-# Boost weight applied to clusters with historical positive feedback.
-# Tuned empirically at α=0.15 — revisit after accumulating real usage data.
-_BOOST_ALPHA = 0.15
+# Rerank weights applied to clusters with historical explicit/implicit feedback.
+# Kept conservative — lexical confidence should still dominate sparse feedback.
+_POSITIVE_FEEDBACK_ALPHA = 0.15
+_NEGATIVE_FEEDBACK_ALPHA = 0.10
+_BOOST_ALPHA = _POSITIVE_FEEDBACK_ALPHA  # backwards-compatible name for tests/users
 
 
 def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
@@ -40,29 +42,33 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
 
     node_map = {n["id"]: n for n in all_nodes}
 
-    # Feedback boost rerank: lift clusters whose node_ids were historically accepted.
+    # Feedback rerank: lift accepted nodes and lightly demote rejected nodes.
     # Controlled by ARIADNE_FEEDBACK_BOOST env var (default: enabled).
     boost_enabled = os.environ.get("ARIADNE_FEEDBACK_BOOST", "1") != "0"
     if boost_enabled and fdb is not None and clusters:
         try:
-            accepted_map = fdb.get_accepted_node_ids(hint)
-            if accepted_map:
+            feedback_counts = fdb.get_node_feedback_counts(hint)
+            if feedback_counts:
                 reranked = False
                 for c in clusters:
-                    boost = sum(
-                        accepted_map.get(nid, 0) for nid in c.get("node_ids", [])
-                    )
-                    if boost:
-                        c["confidence"] = round(c["confidence"] + _BOOST_ALPHA * boost, 6)
+                    adjustment = 0.0
+                    for nid in c.get("node_ids", []):
+                        counts = feedback_counts.get(nid)
+                        if not counts:
+                            continue
+                        adjustment += _POSITIVE_FEEDBACK_ALPHA * counts["accepted"]
+                        adjustment -= _NEGATIVE_FEEDBACK_ALPHA * counts["rejected"]
+                    if adjustment:
+                        c["confidence"] = round(max(0, c["confidence"] + adjustment), 6)
                         reranked = True
                 if reranked:
                     clusters.sort(key=lambda c: c["confidence"], reverse=True)
                     n_reranked = sum(
                         1 for c in clusters
-                        if any(accepted_map.get(nid, 0) for nid in c.get("node_ids", []))
+                        if any(feedback_counts.get(nid) for nid in c.get("node_ids", []))
                     )
                     print(
-                        f"[ariadne] boost applied: hint={hint!r} clusters_reranked={n_reranked}",
+                        f"[ariadne] feedback rerank applied: hint={hint!r} clusters_reranked={n_reranked}",
                         file=sys.stderr,
                     )
         except Exception as _boost_err:

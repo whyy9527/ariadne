@@ -49,28 +49,43 @@ class FeedbackDB:
         )
         self.conn.commit()
 
+    def get_node_feedback_counts(self, hint: str, max_age_days: int = 90) -> dict[str, dict[str, int]]:
+        """
+        Return {node_id: {"accepted": n, "rejected": n}} for feedback rows
+        matching this hint. Only considers rows newer than max_age_days.
+        node_ids column is a JSON array — we expand it in Python.
+        """
+        cutoff_ts = int(time.time()) - max_age_days * 86400
+        rows = self.conn.execute(
+            "SELECT node_ids, accepted FROM feedback "
+            "WHERE hint = ? AND ts >= ?",
+            (hint, cutoff_ts),
+        ).fetchall()
+        counts: dict[str, dict[str, int]] = {}
+        for row in rows:
+            try:
+                ids = json.loads(row[0])
+            except (ValueError, TypeError):
+                continue
+            key = "accepted" if row[1] else "rejected"
+            for nid in ids:
+                if nid:
+                    bucket = counts.setdefault(nid, {"accepted": 0, "rejected": 0})
+                    bucket[key] += 1
+        return counts
+
     def get_accepted_node_ids(self, hint: str, max_age_days: int = 90) -> dict[str, int]:
         """
         Return {node_id: count} for all accepted feedback rows matching this hint.
         Only considers rows newer than max_age_days.
         node_ids column is a JSON array — we expand it in Python.
         """
-        cutoff_ts = int(time.time()) - max_age_days * 86400
-        rows = self.conn.execute(
-            "SELECT node_ids FROM feedback "
-            "WHERE hint = ? AND accepted = 1 AND ts >= ?",
-            (hint, cutoff_ts),
-        ).fetchall()
-        counts: dict[str, int] = {}
-        for row in rows:
-            try:
-                ids = json.loads(row[0])
-            except (ValueError, TypeError):
-                continue
-            for nid in ids:
-                if nid:
-                    counts[nid] = counts.get(nid, 0) + 1
-        return counts
+        feedback_counts = self.get_node_feedback_counts(hint, max_age_days=max_age_days)
+        return {
+            node_id: counts["accepted"]
+            for node_id, counts in feedback_counts.items()
+            if counts["accepted"]
+        }
 
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
