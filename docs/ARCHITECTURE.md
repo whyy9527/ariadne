@@ -19,6 +19,7 @@ ariadne/
 │   └── engine.py  # TF-IDF + IDF-Jaccard → token edges
 ├── store/         # SQLite: ariadne.db / feedback.db
 ├── query/         # query / expand — pure SQLite reads
+├── evaluation.py  # JSONL judgments → hit rate / MRR
 ├── mcp_server.py  # MCP stdio server
 ├── main.py        # CLI + scan orchestration
 └── tests/         # pytest suite
@@ -97,6 +98,27 @@ one bad interaction. Lexical confidence still dominates. Disable with
 
 Day-one results are pure lexical ranking; after a few weeks they reflect
 your team's navigation patterns. Count-based, not a learned model.
+
+## Evaluation
+
+`ariadne-mcp eval <judgments.jsonl>` is the offline ranking gate. Each
+judgment names a query hint and the node ids that should appear in a top-k
+cluster:
+
+```json
+{"hint":"createOrder","expected_node_ids":["gateway::gql::m::createOrder"],"k":3}
+```
+
+The evaluator reuses the same `query()` path as the CLI/MCP server, then
+computes:
+
+- `hit_rate`: fraction of judgments where a matching cluster appears in top-k.
+- `MRR`: mean reciprocal rank of the first matching cluster.
+
+By default a judgment is satisfied when any expected node id appears in a
+cluster. Set `"match": "all"` when all expected node ids must appear in the
+same cluster. CI can pass `--min-hit-rate` and `--min-mrr` to turn regressions
+into a non-zero exit code.
 
 ## MCP tools
 

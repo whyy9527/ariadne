@@ -99,6 +99,27 @@ scan, query. Reproducible end-to-end in under a minute.
 
 ---
 
+## Evaluate ranking
+
+Keep a JSONL judgment list for queries that matter to your workspace:
+
+```jsonl
+{"hint":"createOrder","expected_node_ids":["gateway::gql::m::createOrder"],"k":3}
+{"hint":"owner","expected_node_ids":["customers::http::GET /owners/{ownerId}"],"match":"any","k":5}
+```
+
+Run it against a built DB:
+
+```bash
+ariadne-mcp --db .ariadne/ariadne.db eval eval/queries.jsonl --top 3 --min-hit-rate 0.8
+```
+
+The command prints hit rate and MRR, and exits non-zero when a configured
+threshold fails. Add `--feedback-db .ariadne/feedback.db` to include local
+feedback reranking in the eval.
+
+---
+
 <sub>Architecture, MCP tools, scoring math, feedback boost →
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Custom scanners (Go,
 Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).</sub>

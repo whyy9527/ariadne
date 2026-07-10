@@ -7,6 +7,7 @@ Usage:
   ariadne-mcp query    <hint>  [--db PATH] [--top N]
   ariadne-mcp expand   <name>  [--db PATH]
   ariadne-mcp stats    [--db PATH]
+  ariadne-mcp eval     <judgments.jsonl> [--db PATH] [--top N]
   ariadne-mcp install  <config> <workspace> [--snippet PATH] [--no-scan]
 
 Scan is config-driven. Pass --config PATH (default: ariadne.config.json in the
@@ -590,6 +591,55 @@ def cmd_expand(args):
     print_expand(results)
 
 
+def cmd_eval(args):
+    from ariadne_mcp.evaluation import (
+        JudgmentError,
+        evaluate_judgments,
+        format_eval_report,
+        load_judgments,
+    )
+    from ariadne_mcp.store.db import DB
+
+    try:
+        judgments = load_judgments(args.judgments)
+    except JudgmentError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    db = DB(args.db)
+    _stale_warning(db, args)
+
+    fdb = None
+    if args.feedback_db:
+        from ariadne_mcp.store.feedback_db import FeedbackDB
+        fdb = FeedbackDB(args.feedback_db)
+
+    report = evaluate_judgments(db, judgments, top_k=args.top, fdb=fdb)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_eval_report(report, path=args.judgments))
+
+    metrics = report["metrics"]
+    failed = False
+    if args.min_hit_rate is not None and metrics["hit_rate"] < args.min_hit_rate:
+        print(
+            f"ERROR: hit_rate {metrics['hit_rate']:.3f} < required {args.min_hit_rate:.3f}",
+            file=sys.stderr,
+        )
+        failed = True
+    if args.min_mrr is not None and metrics["mrr"] < args.min_mrr:
+        print(
+            f"ERROR: mrr {metrics['mrr']:.3f} < required {args.min_mrr:.3f}",
+            file=sys.stderr,
+        )
+        failed = True
+    if fdb is not None:
+        fdb.close()
+    if failed:
+        sys.exit(1)
+
+
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SNIPPET = os.path.join(PKG_DIR, "claude-md-snippet.md")
 
@@ -958,6 +1008,28 @@ def build_parser() -> argparse.ArgumentParser:
     e_parser = sub.add_parser("expand", help="Expand from a node name")
     e_parser.add_argument("name", nargs="+", help="Endpoint/topic/operation name")
 
+    eval_parser = sub.add_parser("eval", help="Evaluate query ranking against JSONL judgments")
+    eval_parser.add_argument("judgments", help="JSONL judgment list")
+    eval_parser.add_argument("--top", type=int, default=5, help="Top-k clusters to evaluate")
+    eval_parser.add_argument(
+        "--feedback-db",
+        default=None,
+        help="Optional feedback.db path; enables feedback reranking during eval",
+    )
+    eval_parser.add_argument(
+        "--min-hit-rate",
+        type=float,
+        default=None,
+        help="Fail with exit code 1 when hit rate is below this threshold",
+    )
+    eval_parser.add_argument(
+        "--min-mrr",
+        type=float,
+        default=None,
+        help="Fail with exit code 1 when MRR is below this threshold",
+    )
+    eval_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+
     sub.add_parser("stats", help="Show DB statistics")
 
     config_parser = sub.add_parser("config", help="Config subcommands")
@@ -1001,6 +1073,7 @@ def build_parser() -> argparse.ArgumentParser:
         "scan": scan_parser,
         "query": q_parser,
         "expand": e_parser,
+        "eval": eval_parser,
         "install": install_parser,
         "config": config_parser,
     }
@@ -1019,6 +1092,7 @@ def main():
         "scan": cmd_scan,
         "query": cmd_query,
         "expand": cmd_expand,
+        "eval": cmd_eval,
         "stats": cmd_stats,
         "install": cmd_install,
         "demo": cmd_demo,
