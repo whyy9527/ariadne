@@ -115,6 +115,10 @@ computes:
 - `hit_rate`: fraction of judgments where a matching cluster appears in top-k.
 - `MRR`: mean reciprocal rank of the first matching cluster.
 
+For comparable top-k numbers, `eval` uses a stable internal candidate depth
+before slicing to `--top`. That avoids comparing different cluster sets when
+checking `--top 1`, `--top 3`, and `--top 5`.
+
 By default a judgment is satisfied when any expected node id appears in a
 cluster. Set `"match": "all"` when all expected node ids must appear in the
 same cluster. CI can pass `--min-hit-rate` and `--min-mrr` to turn regressions

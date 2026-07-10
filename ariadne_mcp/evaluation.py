@@ -8,6 +8,8 @@ Judgments are JSONL records:
 The evaluator treats each returned cluster as a ranked document. A judgment is
 a hit when any expected node id appears in a top-k cluster. Set
 ``"match": "all"`` when all expected node ids must appear in the same cluster.
+Internally, eval fetches a stable candidate depth before slicing to top-k so
+separate top-k runs are comparable.
 """
 from __future__ import annotations
 
@@ -87,12 +89,15 @@ def evaluate_judgments(
     judgments: list[dict[str, Any]],
     *,
     top_k: int = 5,
+    retrieval_depth: int | None = None,
     query_fn: Callable[..., list[dict[str, Any]]] | None = None,
     fdb: Any = None,
 ) -> dict[str, Any]:
     """Run judgments against Ariadne query results and return metrics + rows."""
     if top_k < 1:
         raise ValueError("top_k must be >= 1")
+    if retrieval_depth is not None and retrieval_depth < top_k:
+        raise ValueError("retrieval_depth must be >= top_k")
     if not judgments:
         raise ValueError("judgments must not be empty")
 
@@ -102,11 +107,13 @@ def evaluate_judgments(
     rows: list[dict[str, Any]] = []
     hits = 0
     reciprocal_rank_total = 0.0
+    base_depth = retrieval_depth or max(10, top_k)
 
     for judgment in judgments:
         hint = judgment["hint"]
         k = int(judgment.get("k") or top_k)
-        results = query_fn(db, hint, top_n=k, fdb=fdb)
+        depth = max(k, base_depth)
+        results = query_fn(db, hint, top_n=depth, fdb=fdb)
         rank, matched_node_ids = _find_hit_rank(
             results[:k],
             set(judgment["expected_node_ids"]),
@@ -135,6 +142,8 @@ def evaluate_judgments(
             "hits": hits,
             "hit_rate": hits / total,
             "mrr": reciprocal_rank_total / total,
+            "k": top_k,
+            "retrieval_depth": base_depth,
         },
         "results": rows,
     }
@@ -176,6 +185,7 @@ def format_eval_report(report: dict[str, Any], *, path: str | None = None) -> st
         lines.append(f"Eval: {path}")
     lines.extend([
         f"Queries: {metrics['total']}",
+        f"Depth: {metrics['retrieval_depth']}",
         f"Hits: {metrics['hits']}/{metrics['total']} = {metrics['hit_rate']:.3f}",
         f"MRR: {metrics['mrr']:.3f}",
         "",

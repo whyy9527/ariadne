@@ -110,6 +110,45 @@ def test_evaluate_judgments_all_match_requires_same_cluster():
     assert report["results"][0]["matched_node_ids"] == ["node:EVENT", "node:ORDER"]
 
 
+def test_evaluate_judgments_uses_stable_default_retrieval_depth():
+    from ariadne_mcp.evaluation import evaluate_judgments
+
+    calls = []
+
+    def fake_query(_db, hint, top_n=5, fdb=None):
+        calls.append(top_n)
+        return [
+            {"nodes": [{"id": "node:OTHER"}]},
+            {"nodes": [{"id": "node:ORDER"}]},
+        ][:top_n]
+
+    report = evaluate_judgments(
+        object(),
+        [{"hint": "createOrder", "expected_node_ids": ["node:ORDER"], "match": "any"}],
+        top_k=3,
+        query_fn=fake_query,
+    )
+
+    assert calls == [10]
+    assert report["metrics"]["retrieval_depth"] == 10
+    assert report["metrics"]["hits"] == 1
+    assert report["results"][0]["rank"] == 2
+
+
+def test_evaluate_judgments_rejects_depth_below_top_k():
+    import pytest
+    from ariadne_mcp.evaluation import evaluate_judgments
+
+    with pytest.raises(ValueError, match="retrieval_depth must be >= top_k"):
+        evaluate_judgments(
+            object(),
+            [{"hint": "createOrder", "expected_node_ids": ["node:ORDER"], "match": "any"}],
+            top_k=5,
+            retrieval_depth=3,
+            query_fn=lambda *_args, **_kwargs: [],
+        )
+
+
 def test_cli_parser_accepts_eval_args():
     from ariadne_mcp.cli import build_parser
 

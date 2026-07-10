@@ -114,9 +114,10 @@ Run it against a built DB:
 ariadne-mcp --db .ariadne/ariadne.db eval eval/queries.jsonl --top 3 --min-hit-rate 0.8
 ```
 
-The command prints hit rate and MRR, and exits non-zero when a configured
-threshold fails. Add `--feedback-db .ariadne/feedback.db` to include local
-feedback reranking in the eval.
+The command evaluates top-k hit rate and MRR using a stable internal candidate
+depth, and exits non-zero when a configured threshold fails. Add
+`--feedback-db .ariadne/feedback.db` to include local feedback reranking in the
+eval.
 
 ---
 
