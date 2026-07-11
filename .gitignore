@@ -1,6 +1,7 @@
 *.db
 benchmarks/.work/
 examples/.work/
+adoption-snapshots/
 __pycache__/
 *.pyc
 *.pyo

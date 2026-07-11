@@ -147,4 +147,5 @@ eval.
 
 <sub>Architecture, MCP tools, scoring math, feedback boost →
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Custom scanners (Go,
-Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).</sub>
+Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).
+Maintainer adoption snapshots → [`docs/ADOPTION_METRICS.md`](docs/ADOPTION_METRICS.md).</sub>
