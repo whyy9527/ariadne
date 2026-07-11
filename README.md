@@ -56,7 +56,12 @@ Clones [`spring-petclinic-microservices`][petclinic] into
 `owner` — a real cross-service call chain. No config file, no workspace
 setup.
 
+Did Ariadne find the chain you expected? Share one minute of
+[structured feedback][feedback-form]. Ariadne sends no usage data automatically;
+the form opens only when you choose to submit it.
+
 [petclinic]: https://github.com/spring-petclinic/spring-petclinic-microservices
+[feedback-form]: https://github.com/whyy9527/ariadne/issues/new?template=usage-feedback.yml
 
 ---
 
@@ -71,6 +76,10 @@ ariadne-mcp install ariadne.config.json ~/your-workspace
 
 Restart Claude Code. `install` is idempotent — re-run after pulling new
 code, or let the assistant call `rescan` on a `stale_warning`.
+
+After your first real query, you can optionally send
+[closed-ended usage feedback][feedback-form]. No source, query, or usage data is
+transmitted by Ariadne itself.
 
 ---
 

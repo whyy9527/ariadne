@@ -1,0 +1,64 @@
+name: Ariadne usage feedback
+description: Tell us whether Ariadne found the API chain you expected.
+title: "[feedback] "
+labels:
+  - feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Ariadne. This form is submitted only when you choose to send it.
+
+        Do not paste private source code, credentials, repository URLs, local paths, or API contents.
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Did the first relevant query find the API chain you expected?
+      options:
+        - Found the expected chain
+        - Found a partially useful chain
+        - Returned an unrelated chain
+        - Returned no result
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      description: Which contract path best matches the workspace you scanned?
+      options:
+        - Spring HTTP or backend client
+        - Kafka
+        - GraphQL
+        - TypeScript frontend HTTP or GraphQL
+        - Cube.js
+        - Mixed stack
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Failure stage
+      description: Where did the experience stop being useful?
+      options:
+        - No failure
+        - Installation or configuration
+        - Repository scan
+        - Query ranking
+        - Returned context size or clarity
+        - MCP integration
+    validations:
+      required: true
+
+  - type: textarea
+    id: note
+    attributes:
+      label: Optional note
+      description: Share a short, sanitized explanation without private code or identifiers.
+      placeholder: A generic operation name or framework detail is enough.
+    validations:
+      required: false
