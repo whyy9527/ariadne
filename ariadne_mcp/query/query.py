@@ -95,7 +95,7 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
 
         # Build directional edge summary for this cluster
         cluster_node_ids = {n["id"] for n in nodes_info}
-        cluster_edges = db.get_edges_for_nodes(list(cluster_node_ids), min_score=0.12)
+        cluster_edges = db.get_edges_for_nodes(sorted(cluster_node_ids), min_score=0.12)
         directed_edges = []
         for e in cluster_edges:
             if e.get("from_service") and e.get("to_service"):
@@ -122,7 +122,7 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
             "query": hint,
             "confidence": c["confidence"],
             "nodes": nodes_info,
-            "services": list({_service_of(n) for n in nodes_info}),
+            "services": sorted({_service_of(n) for n in nodes_info}),
             "directed_edges": directed_edges_deduped,
         })
 

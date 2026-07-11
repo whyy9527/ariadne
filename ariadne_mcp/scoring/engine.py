@@ -307,7 +307,7 @@ def find_anchors(nodes: list[dict], query_hint: str, top_n: int = 30) -> list[di
         if multi_match:
             scored = multi_match
 
-    scored.sort(key=lambda x: -x[1])
+    scored.sort(key=lambda x: (-x[1], x[0]["id"]))
     anchors = [n for n, s in scored if s >= 0.15][:top_n]
     if not anchors:
         anchors = [n for n, s in scored if s > 0][:10]
@@ -352,7 +352,7 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
         adj.setdefault(sid, []).append((tid, sc))
         adj.setdefault(tid, []).append((sid, sc))
     for nid in adj:
-        adj[nid].sort(key=lambda x: -x[1])
+        adj[nid].sort(key=lambda x: (-x[1], x[0]))
 
     if anchors is None:
         if query_hint:
@@ -413,7 +413,7 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
     for group in merged:
         # Union all neighborhoods
         all_ids = set()
-        for gid in group:
+        for gid in sorted(group):
             all_ids |= anchor_hoods[gid]
 
         # Deduplicate against already-found clusters
@@ -425,7 +425,7 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
             continue
         seen_cluster_sets.append(all_ids)
 
-        c_nodes = [nid for nid in all_ids if nid in node_map]
+        c_nodes = sorted(nid for nid in all_ids if nid in node_map)
         if len(c_nodes) < 2:
             continue
 
@@ -467,9 +467,14 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
 
         # Sort nodes within cluster: anchors first, then by service diversity
         anchor_set = {a["id"] for a in anchors}
-        c_nodes_sorted = (
-            [n for n in c_nodes if n in anchor_set] +
-            [n for n in c_nodes if n not in anchor_set]
+        anchor_order = {anchor["id"]: index for index, anchor in enumerate(anchors)}
+        c_nodes_sorted = sorted(
+            c_nodes,
+            key=lambda node_id: (
+                0 if node_id in anchor_set else 1,
+                anchor_order.get(node_id, len(anchor_order)),
+                node_id,
+            ),
         )
 
         scored_clusters.append({
@@ -478,5 +483,5 @@ def build_clusters(nodes: list[dict], edges: list[dict], query_hint: str = None,
             "query_hint": query_hint,
         })
 
-    scored_clusters.sort(key=lambda x: -x["confidence"])
+    scored_clusters.sort(key=lambda x: (-x["confidence"], tuple(x["node_ids"])))
     return scored_clusters[:top_n]

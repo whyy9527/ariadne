@@ -35,9 +35,9 @@ Top Cluster #1  [confidence: 0.91]
   - [billing-svc]  Kafka Listener:    order-created → chargeCustomer
 ```
 
-~500 tokens round-trip. The equivalent `grep -r createOrder` across
-four repos returns 40+ matches across DTOs, tests, and configs at
-~2000 tokens, with the contract layer buried.
+The response is intentionally bounded for an AI context window. See the
+[reproducible Petclinic benchmark](BENCHMARKS.md) for measured retrieval,
+serialized token, and timing results against `rg` and `grep`.
 
 Supports: GraphQL · Spring HTTP/Kafka/RestClient · TypeScript
 Apollo/fetch/axios · Cube.js.

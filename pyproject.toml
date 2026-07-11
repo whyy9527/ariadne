@@ -40,6 +40,11 @@ dependencies = [
     "mcp>=1.0",
 ]
 
+[project.optional-dependencies]
+benchmark = [
+    "tiktoken>=0.7",
+]
+
 [project.urls]
 Homepage = "https://github.com/whyy9527/ariadne"
 Repository = "https://github.com/whyy9527/ariadne"
