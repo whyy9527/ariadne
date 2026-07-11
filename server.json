@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.whyy9527/ariadne",
+  "title": "Ariadne",
+  "description": "Deterministic local cross-service API-chain discovery for AI coding agents.",
+  "repository": {
+    "url": "https://github.com/whyy9527/ariadne",
+    "source": "github"
+  },
+  "version": "0.1.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "ariadne-mcp",
+      "version": "0.1.3",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

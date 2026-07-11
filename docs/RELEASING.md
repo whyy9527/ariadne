@@ -55,6 +55,11 @@ git push origin main --tags
 
 # 9. Create a GitHub release off the tag (optional but recommended)
 gh release create v<VER> --generate-notes
+
+# 10. Publish to the Official MCP Registry after PyPI serves the new README
+mcp-publisher validate
+mcp-publisher login github
+mcp-publisher publish
 ```
 
 ## Post-release verification
@@ -75,10 +80,8 @@ again".
 
 ## Notes
 
-- `mcp>=1.0` is the only runtime dep. The embedding-based recall layer
-  (`onnxruntime`, `tokenizers`, `huggingface_hub`) is lazy-loaded and
-  documented as an optional extra for power users; the core tool works
-  on TF-IDF alone.
+- `mcp>=1.0` is the only runtime dependency. The release architecture is local
+  deterministic static analysis, SQLite, and token scoring.
 - Resource files (`claude-md-snippet.md`, `ariadne.config.example.json`)
   live inside the `ariadne_mcp/` package and are declared in
   `[tool.setuptools.package-data]`. If you add more resources, update

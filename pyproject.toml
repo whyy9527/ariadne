@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ariadne-mcp"
-version = "0.1.2"
-description = "Cross-service API dependency graph for microservice stacks. MCP stdio server + CLI for Claude Code, Cursor, and Windsurf."
+version = "0.1.3"
+description = "Fast local MCP server for deterministic cross-service API-chain discovery across REST, GraphQL, Kafka, TypeScript, and FastAPI."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "whyy" }]
@@ -17,7 +17,10 @@ keywords = [
     "claude-code",
     "cursor",
     "graphql",
+    "fastapi",
+    "kafka",
     "microservices",
+    "static-analysis",
     "code-navigation",
     "dependency-graph",
     "llm-tools",
