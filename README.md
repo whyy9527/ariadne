@@ -14,6 +14,9 @@ Zero ML dependencies.
 
 ![Ariadne demo — scan Spring PetClinic microservices and ask "owner"](docs/demo.gif)
 
+<sub>70-second deterministic terminal walkthrough. Reproduce it from
+[`docs/demo.tape`](docs/demo.tape).</sub>
+
 ---
 
 ## What it does
