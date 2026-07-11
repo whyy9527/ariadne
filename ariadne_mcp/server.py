@@ -417,6 +417,7 @@ _SCANNERS = """\
 |--------------------|--------------------------------------------------------------------|
 | `graphql`          | `.graphql` / `.gql` SDL → Query / Mutation / Subscription / Type   |
 | `http`             | Spring `@RestController` (Java/Kotlin) → HTTP endpoints            |
+| `fastapi`          | Python `FastAPI` / `APIRouter` decorators → HTTP endpoints        |
 | `kafka`            | Spring `application.yaml` topics + `@KafkaListener` + producers    |
 | `backend_clients`  | Spring `RestClient` / `RestTemplate` outbound calls in `*Client.*` |
 | `frontend_graphql` | TypeScript `gql\\`\\`` literals → frontend Query/Mutation            |

@@ -42,7 +42,7 @@ The response is intentionally bounded for an AI context window. See the
 [reproducible Petclinic benchmark](BENCHMARKS.md) for measured retrieval,
 serialized token, and timing results against `rg` and `grep`.
 
-Supports: GraphQL · Spring HTTP/Kafka/RestClient · TypeScript
+Supports: GraphQL · Spring HTTP/Kafka/RestClient · Python FastAPI · TypeScript
 Apollo/fetch/axios · Cube.js.
 
 ---
@@ -113,6 +113,7 @@ and verifies manually reviewed node IDs:
 | [`spring-petclinic`](examples/spring-petclinic/) | Spring REST gateway → service |
 | [`one-platform`](examples/one-platform/) | GraphQL/TypeScript services |
 | [`kafka-microservices`](examples/kafka-microservices/) | Kafka producer → consumer |
+| [`fastapi-microservices`](examples/fastapi-microservices/) | Python FastAPI routes |
 
 Run one from a source checkout:
 

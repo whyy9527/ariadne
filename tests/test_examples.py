@@ -16,7 +16,9 @@ def _runner_module():
 
 
 def test_public_example_manifests_are_complete():
-    for name in ("spring-petclinic", "one-platform", "kafka-microservices"):
+    for name in (
+        "spring-petclinic", "one-platform", "kafka-microservices", "fastapi-microservices"
+    ):
         example = ROOT / "examples" / name
         metadata = json.loads((example / "metadata.json").read_text(encoding="utf-8"))
         expected = json.loads((example / "expected.json").read_text(encoding="utf-8"))

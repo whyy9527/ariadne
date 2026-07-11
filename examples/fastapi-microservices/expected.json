@@ -1,0 +1,9 @@
+{
+  "hint": "user_id",
+  "top": 5,
+  "match": "all",
+  "expected_node_ids": [
+    "users::http::GET::/{user_id}/::read_user",
+    "users::http::DELETE::/{user_id}/::delete_user"
+  ]
+}

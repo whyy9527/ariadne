@@ -1,0 +1,8 @@
+{
+  "repos": [
+    {
+      "name": "users",
+      "path": "fastapi-microservices/users"
+    }
+  ]
+}

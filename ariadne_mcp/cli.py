@@ -62,6 +62,7 @@ def _get_scanner_registry():
     from ariadne_mcp.scanner.backend_client_scanner import BackendClientScanner
     from ariadne_mcp.scanner.cube_scanner import CubeScanner
     from ariadne_mcp.scanner.ts_http_outbound_scanner import TsHttpOutboundScanner
+    from ariadne_mcp.scanner.fastapi_scanner import FastAPIScanner
     return {
         "graphql": GraphQLScanner,
         "http": HTTPScanner,
@@ -71,6 +72,7 @@ def _get_scanner_registry():
         "backend_clients": BackendClientScanner,
         "cube": CubeScanner,
         "ts_http_outbound": TsHttpOutboundScanner,
+        "fastapi": FastAPIScanner,
     }
 
 

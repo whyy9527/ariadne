@@ -70,6 +70,16 @@ def test_detect_unknown(tmp_path: Path) -> None:
     assert detect_scanners(str(tmp_path)) == []
 
 
+def test_detect_fastapi_from_requirements(tmp_path: Path) -> None:
+    _write(tmp_path / "requirements.txt", "fastapi==0.115.0\nuvicorn>=0.30\n")
+    assert detect_scanners(str(tmp_path)) == ["fastapi"]
+
+
+def test_detect_fastapi_from_pyproject(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", 'dependencies = ["fastapi>=0.115"]\n')
+    assert detect_scanners(str(tmp_path)) == ["fastapi"]
+
+
 def test_normalize_fills_name_and_scanners(tmp_path: Path) -> None:
     repo = tmp_path / "orders-svc"
     _write(repo / "pom.xml", "<project/>")

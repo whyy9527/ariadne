@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/Kludex/fastapi-microservices.git",
+  "revision": "262bd1b7a97d6a6375067abac778bb8d75bb5edc",
+  "license": "MIT",
+  "checkout_dir": "fastapi-microservices"
+}

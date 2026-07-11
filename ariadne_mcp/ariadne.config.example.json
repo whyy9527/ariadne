@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to ariadne.config.json and edit the paths. Paths are resolved relative to this file. Scanners are inferred from each repo's files at scan time (pom.xml/build.gradle → JVM backend; package.json + apollo/SDL → TS BFF; package.json → frontend; @cubejs-backend dep → cube). Run `ariadne-mcp config validate` to see what gets inferred. See README → Configuration → 'When defaults aren't enough' for explicit overrides.",
+  "_comment": "Copy to ariadne.config.json and edit the paths. Paths are resolved relative to this file. Scanners are inferred from each repo's files at scan time (pom.xml/build.gradle → JVM backend; FastAPI dependency → Python HTTP; package.json + apollo/SDL → TS BFF; package.json → frontend; @cubejs-backend dep → cube). Run `ariadne-mcp config validate` to see what gets inferred. See docs/CONFIG.md for explicit overrides.",
   "repos": [
     { "path": "../gateway" },
     { "path": "../orders-svc" },

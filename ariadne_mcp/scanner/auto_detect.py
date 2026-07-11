@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 
 _GRAPHQL_SDL_DIRS = ("", "src", "src/schema", "schema", "graphql", "src/graphql")
@@ -65,6 +66,21 @@ def _is_jvm(repo_path: str) -> bool:
     return False
 
 
+def _is_fastapi(repo_path: str) -> bool:
+    candidates = ("pyproject.toml", "requirements.txt", "requirements.in", "setup.cfg", "setup.py")
+    for name in candidates:
+        path = os.path.join(repo_path, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as file:
+                if re.search(r"\bfastapi\b", file.read(), re.IGNORECASE):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
 def detect_scanners(repo_path: str) -> list[str]:
     """Return the default scanner name list for *repo_path*.
 
@@ -72,6 +88,9 @@ def detect_scanners(repo_path: str) -> list[str]:
     """
     if not os.path.isdir(repo_path):
         return []
+
+    if _is_fastapi(repo_path):
+        return ["fastapi"]
 
     pkg = _read_package_json(repo_path)
     if pkg is not None:

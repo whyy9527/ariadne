@@ -31,6 +31,7 @@ Top-level files in each repo:
 | `package.json` with `@cubejs-backend/*` dep     | `["cube"]`                              |
 | `package.json` + `@apollo/server` / SDL file    | `["graphql", "ts_http_outbound"]`       |
 | `package.json` (anything else)                  | `["frontend_graphql", "frontend_rest"]` |
+| Python dependency file containing `fastapi`    | `["fastapi"]`                           |
 | `pom.xml` / `build.gradle(.kts)` + SDL          | `["graphql", "http", "kafka", "backend_clients"]` |
 | `pom.xml` / `build.gradle(.kts)`                | `["http", "kafka", "backend_clients"]`  |
 | none of the above                               | *warning printed, repo skipped*         |
@@ -41,6 +42,7 @@ Top-level files in each repo:
 |--------------------|--------------------------------------------------------------------|
 | `graphql`          | `.graphql` / `.gql` SDL → Query / Mutation / Subscription / Type   |
 | `http`             | Spring `@RestController` (Java/Kotlin) → HTTP endpoints            |
+| `fastapi`          | Python `FastAPI` / `APIRouter` literal routes → HTTP endpoints     |
 | `kafka`            | Spring `application.yaml` topics + `@KafkaListener` + producers    |
 | `backend_clients`  | Spring `RestClient` / `RestTemplate` outbound calls in `*Client.*` |
 | `frontend_graphql` | TypeScript `gql\`\`` literals → frontend Query/Mutation            |
