@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/spring-petclinic/spring-petclinic-microservices.git",
+  "revision": "305a1f13e4f961001d4e6cb50a9db51dc3fc5967",
+  "license": "Apache-2.0",
+  "checkout_dir": "spring-petclinic-microservices"
+}

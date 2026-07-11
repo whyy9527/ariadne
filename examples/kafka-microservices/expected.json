@@ -1,0 +1,9 @@
+{
+  "hint": "orders",
+  "top": 5,
+  "match": "all",
+  "expected_node_ids": [
+    "order-service::kafka::produce::orders",
+    "invoice-service::kafka::consume::orders"
+  ]
+}

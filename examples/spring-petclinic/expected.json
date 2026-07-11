@@ -1,0 +1,9 @@
+{
+  "hint": "owner",
+  "top": 5,
+  "match": "all",
+  "expected_node_ids": [
+    "spring-petclinic-api-gateway::http::GET::/api/gateway/owners/{ownerId}::getOwnerDetails",
+    "spring-petclinic-customers-service::http::GET::/owners/{ownerId}::findOwner"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/thecodemonkey/kafka-microservices.git",
+  "revision": "a4752cdb21d1d06bffb398fd5d128d14a87c6cec",
+  "license": "MIT",
+  "checkout_dir": "kafka-microservices"
+}

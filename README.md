@@ -91,11 +91,22 @@ syntax.
 
 ---
 
-## Try it on a public sample
+## Reproducible public samples
 
-[`examples/spring-petclinic/`](examples/spring-petclinic/) — clone the
-public `spring-petclinic-microservices` sample, drop in the config,
-scan, query. Reproducible end-to-end in under a minute.
+Each sample pins an upstream commit, scans real service source, runs one query,
+and verifies manually reviewed node IDs:
+
+| Example | Contract path |
+|---|---|
+| [`spring-petclinic`](examples/spring-petclinic/) | Spring REST gateway → service |
+| [`one-platform`](examples/one-platform/) | GraphQL/TypeScript services |
+| [`kafka-microservices`](examples/kafka-microservices/) | Kafka producer → consumer |
+
+Run one from a source checkout:
+
+```bash
+python examples/run.py kafka-microservices
+```
 
 ---
 

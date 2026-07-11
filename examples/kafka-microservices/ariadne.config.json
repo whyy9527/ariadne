@@ -1,0 +1,14 @@
+{
+  "repos": [
+    {
+      "name": "order-service",
+      "path": "kafka-microservices/hello-kafka-microservices/order-service",
+      "scanners": ["http", "kafka"]
+    },
+    {
+      "name": "invoice-service",
+      "path": "kafka-microservices/hello-kafka-microservices/invoice-service",
+      "scanners": ["http", "kafka"]
+    }
+  ]
+}

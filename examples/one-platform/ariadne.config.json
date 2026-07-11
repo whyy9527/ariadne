@@ -1,0 +1,15 @@
+{
+  "repos": [
+    {
+      "name": "user-group-service",
+      "path": "one-platform/packages/user-group-service",
+      "scanners": ["graphql", "ts_http_outbound"]
+    },
+    {
+      "name": "feedback-service",
+      "path": "one-platform/packages/feedback-service",
+      "scanners": ["graphql", "ts_http_outbound"]
+    }
+  ],
+  "bff_services": ["user-group-service", "feedback-service"]
+}

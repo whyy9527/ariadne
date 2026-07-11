@@ -11,24 +11,15 @@ reproduce this.
 ## Run it
 
 ```bash
-# 1. Pick a workspace directory
-mkdir ~/ariadne-demo && cd ~/ariadne-demo
-
-# 2. Clone the sample
-git clone --depth 1 https://github.com/spring-petclinic/spring-petclinic-microservices.git
-
-# 3. Drop this config in (same directory as the clone)
-curl -O https://raw.githubusercontent.com/whyy9527/ariadne/main/examples/spring-petclinic/ariadne.config.json
-
-# 4. Install Ariadne (if you haven't already)
-pip install ariadne-mcp
-
-# 5. Scan
-ariadne-mcp --db ./petclinic.db scan --config ./ariadne.config.json
-
-# 6. Ask a cross-service question
-ariadne-mcp --db ./petclinic.db query "owner"
+git clone https://github.com/whyy9527/ariadne.git
+cd ariadne
+python -m pip install -e .
+python examples/run.py spring-petclinic
 ```
+
+The runner checks out the Apache-2.0 upstream repository at
+`305a1f13e4f961001d4e6cb50a9db51dc3fc5967`, scans five services, runs the
+`owner` query, and verifies the reviewed gateway-to-customers nodes.
 
 ## What you'll see
 
@@ -68,8 +59,7 @@ Top Cluster #2  [confidence: 0.52]
 
 Cluster #1 shows the gateway → customers-service hop for owner lookup.
 Cluster #2 shows how `owner` fans out into pet-visit creation on a
-different service. Five repos' worth of REST endpoints, one business
-term, ~500 tokens.
+different service. Five repos' worth of REST endpoints, one business term.
 
 ## Stack coverage on this demo
 
