@@ -1,0 +1,22 @@
+{
+  "spring-petclinic": {
+    "example": "spring-petclinic",
+    "judgments": "judgments/spring-petclinic.jsonl",
+    "source_globs": ["*.java"]
+  },
+  "one-platform": {
+    "example": "one-platform",
+    "judgments": "judgments/one-platform.jsonl",
+    "source_globs": ["*.graphql", "*.gql", "*.ts"]
+  },
+  "kafka-microservices": {
+    "example": "kafka-microservices",
+    "judgments": "judgments/kafka-microservices.jsonl",
+    "source_globs": ["*.kt", "*.java", "*.yml", "*.yaml"]
+  },
+  "fastapi-microservices": {
+    "example": "fastapi-microservices",
+    "judgments": "judgments/fastapi-microservices.jsonl",
+    "source_globs": ["*.py"]
+  }
+}

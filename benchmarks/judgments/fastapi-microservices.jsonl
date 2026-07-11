@@ -1,0 +1,12 @@
+{"hint":"delete_user","expected_node_ids":["users::http::DELETE::/{user_id}/::delete_user"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"delete_user"}]}
+{"hint":"health","expected_node_ids":["users::http::GET::/::health"],"baseline_locators":[{"path_suffix":"users/app/api/health.py","contains":"health"}]}
+{"hint":"home","expected_node_ids":["users::http::GET::/::home"],"baseline_locators":[{"path_suffix":"users/app/api/v1/home.py","contains":"home"}]}
+{"hint":"read_users","expected_node_ids":["users::http::GET::/::read_users"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"read_users"}]}
+{"hint":"another","expected_node_ids":["users::http::GET::/another/::another"],"baseline_locators":[{"path_suffix":"users/app/api/v1/home.py","contains":"another"}]}
+{"hint":"get_task","expected_node_ids":["users::http::GET::/{task_id}/::get_task"],"baseline_locators":[{"path_suffix":"users/app/api/v1/tasks.py","contains":"get_task"}]}
+{"hint":"read_user","expected_node_ids":["users::http::GET::/{user_id}/::read_user"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"read_user"}]}
+{"hint":"create_task","expected_node_ids":["users::http::POST::/::create_task"],"baseline_locators":[{"path_suffix":"users/app/api/v1/tasks.py","contains":"create_task"}]}
+{"hint":"create_user","expected_node_ids":["users::http::POST::/::create_user"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"create_user"}]}
+{"hint":"login","expected_node_ids":["users::http::POST::/login/::login"],"baseline_locators":[{"path_suffix":"users/app/api/v1/login.py","contains":"login"}]}
+{"hint":"update_user","expected_node_ids":["users::http::PUT::/{user_id}/::update_user"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"update_user"}]}
+{"hint":"user_id","expected_node_ids":["users::http::GET::/{user_id}/::read_user","users::http::PUT::/{user_id}/::update_user","users::http::DELETE::/{user_id}/::delete_user"],"baseline_locators":[{"path_suffix":"users/app/api/v1/users.py","contains":"user_id"}]}

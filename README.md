@@ -39,8 +39,23 @@ Top Cluster #1  [confidence: 0.91]
 ```
 
 The response is intentionally bounded for an AI context window. See the
-[reproducible Petclinic benchmark](BENCHMARKS.md) for measured retrieval,
+[reproducible public-stack benchmark](BENCHMARKS.md) for measured retrieval,
 serialized token, and timing results against `rg` and `grep`.
+
+Current public-stack benchmark (48 reviewed queries across Spring REST,
+GraphQL/TypeScript, Kafka, and FastAPI):
+
+| Backend | Top-1 | Top-3 | MRR | Warm query | Mean output |
+|---|---:|---:|---:|---:|---:|
+| Ariadne | 64.6% | 70.8% | 0.677 | <0.3 ms | 157 tokens |
+| `rg` | 37.5% | 56.2% | 0.510 | ~9 ms | 591 tokens |
+| `grep` | 37.5% | 56.2% | 0.510 | ~9 ms | 591 tokens |
+
+[Full methodology and per-stack results](BENCHMARKS.md) ·
+[raw JSON evidence](benchmarks/results.json)
+
+This corpus is operation-name-heavy and measures deterministic contract lookup
+compatibility. It is not yet a natural-language relevance benchmark.
 
 Supports: GraphQL · Spring HTTP/Kafka/RestClient · Python FastAPI · TypeScript
 Apollo/fetch/axios · Cube.js.

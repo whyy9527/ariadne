@@ -56,3 +56,30 @@ def test_relevance_uses_reviewed_locator():
         {"path": "service/OwnerResource.java", "text": "public Owner updateOwner(...)"},
         locator,
     )
+
+
+def test_public_benchmark_corpus_has_exact_reviewed_distribution():
+    benchmark = _benchmark_module()
+    samples = benchmark.load_samples(benchmark.BENCHMARK_DIR / "samples.json")
+    counts = {
+        name: len(benchmark.load_judgments(benchmark.BENCHMARK_DIR / sample["judgments"]))
+        for name, sample in samples.items()
+    }
+    assert counts == {
+        "spring-petclinic": 12,
+        "one-platform": 18,
+        "kafka-microservices": 6,
+        "fastapi-microservices": 12,
+    }
+    assert sum(counts.values()) == 48
+
+
+def test_every_judgment_has_unique_hint_and_reviewable_locators():
+    benchmark = _benchmark_module()
+    samples = benchmark.load_samples(benchmark.BENCHMARK_DIR / "samples.json")
+    for sample in samples.values():
+        judgments = benchmark.load_judgments(benchmark.BENCHMARK_DIR / sample["judgments"])
+        assert len({row["hint"].casefold() for row in judgments}) == len(judgments)
+        for row in judgments:
+            assert all("::" in node_id for node_id in row["expected_node_ids"])
+            assert all(locator["path_suffix"] and locator["contains"] for locator in row["baseline_locators"])

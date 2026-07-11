@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Reproducible Ariadne versus rg/grep benchmark on Spring Petclinic."""
+"""Reproducible Ariadne versus rg/grep benchmark on pinned public stacks."""
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 import statistics
@@ -12,13 +13,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-REPO_URL = "https://github.com/spring-petclinic/spring-petclinic-microservices.git"
-REPO_REVISION = "305a1f13e4f961001d4e6cb50a9db51dc3fc5967"
 REPETITIONS = 5
 TOP_K = 3
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK_DIR = ROOT / "benchmarks"
+EXAMPLES_DIR = ROOT / "examples"
 
 
 def load_judgments(path: Path) -> list[dict[str, Any]]:
@@ -35,42 +35,46 @@ def load_judgments(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def ensure_sample(sample: Path) -> None:
-    if not (sample / ".git").exists():
-        sample.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "init", str(sample)], check=True, capture_output=True, text=True)
-        subprocess.run(
-            ["git", "-C", str(sample), "fetch", "--depth", "1", REPO_URL, REPO_REVISION],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(sample), "checkout", "--detach", "FETCH_HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    revision = subprocess.run(
-        ["git", "-C", str(sample), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if revision != REPO_REVISION:
-        raise RuntimeError(f"sample revision is {revision}; expected {REPO_REVISION}")
+def load_samples(path: Path) -> dict[str, dict[str, Any]]:
+    samples = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(samples, dict) or not samples:
+        raise ValueError(f"{path}: expected a non-empty sample object")
+    for name, sample in samples.items():
+        for key in ("example", "judgments", "source_globs"):
+            if not sample.get(key):
+                raise ValueError(f"{path}: sample {name!r} is missing {key!r}")
+    return samples
 
 
-def write_config(sample: Path, config_path: Path) -> None:
-    services = [
-        "spring-petclinic-api-gateway",
-        "spring-petclinic-customers-service",
-        "spring-petclinic-vets-service",
-        "spring-petclinic-visits-service",
-        "spring-petclinic-genai-service",
-    ]
-    config = {"repos": [{"path": str(sample / service)} for service in services]}
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+def load_example_runner():
+    path = EXAMPLES_DIR / "run.py"
+    spec = importlib.util.spec_from_file_location("ariadne_example_runner", path)
+    module = importlib.util.module_from_spec(spec)
+    if spec.loader is None:
+        raise RuntimeError(f"cannot load example runner: {path}")
+    spec.loader.exec_module(module)
+    return module
+
+
+def prepare_sample(name: str, sample: dict[str, Any], work_root: Path) -> dict[str, Any]:
+    example_dir = EXAMPLES_DIR / sample["example"]
+    metadata = json.loads((example_dir / "metadata.json").read_text(encoding="utf-8"))
+    work_dir = work_root / name
+    checkout = work_dir / metadata["checkout_dir"]
+    load_example_runner().ensure_checkout(metadata, checkout)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    config = work_dir / "ariadne.config.json"
+    shutil.copyfile(example_dir / "ariadne.config.json", config)
+    return {
+        "name": name,
+        "metadata": metadata,
+        "work_dir": work_dir,
+        "checkout": checkout,
+        "config": config,
+        "db": work_dir / "ariadne.db",
+        "judgments": load_judgments(BENCHMARK_DIR / sample["judgments"]),
+        "source_globs": sample["source_globs"],
+    }
 
 
 def build_index(config: Path, db_path: Path) -> float:
@@ -105,9 +109,9 @@ def serialize_ariadne(results: list[dict[str, Any]]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
-def normalize_matches(stdout: str, sample: Path) -> list[dict[str, Any]]:
+def normalize_matches(stdout: str, checkout: Path) -> list[dict[str, Any]]:
     rows = []
-    prefix = str(sample) + "/"
+    prefix = str(checkout) + "/"
     for raw in stdout.splitlines():
         parts = raw.split(":", 2)
         if len(parts) != 3 or not parts[1].isdigit():
@@ -119,20 +123,27 @@ def normalize_matches(stdout: str, sample: Path) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (row["path"], row["line"], row["text"]))
 
 
-def run_baseline(backend: str, hint: str, sample: Path) -> list[dict[str, Any]]:
+def run_baseline(
+    backend: str,
+    hint: str,
+    checkout: Path,
+    source_globs: list[str],
+) -> list[dict[str, Any]]:
     if backend == "rg":
-        command = ["rg", "--no-heading", "--line-number", "--color", "never", "-i", "-F", "-g", "*.java", hint, str(sample)]
+        command = ["rg", "--no-heading", "--line-number", "--color", "never", "-i", "-F"]
+        for source_glob in source_globs:
+            command.extend(["-g", source_glob])
+        command.extend([hint, str(checkout)])
     elif backend == "grep":
-        command = [
-            "grep", "-R", "-I", "-n", "-i", "-F",
-            "--include=*.java", "--exclude-dir=.git", hint, str(sample),
-        ]
+        command = ["grep", "-R", "-I", "-n", "-i", "-F", "--exclude-dir=.git"]
+        command.extend(f"--include={source_glob}" for source_glob in source_globs)
+        command.extend([hint, str(checkout)])
     else:
         raise ValueError(f"unknown baseline: {backend}")
-    proc = subprocess.run(command, capture_output=True, text=True)
-    if proc.returncode not in (0, 1):
-        raise RuntimeError(f"{backend} failed: {proc.stderr.strip()}")
-    return normalize_matches(proc.stdout, sample)
+    process = subprocess.run(command, capture_output=True, text=True)
+    if process.returncode not in (0, 1):
+        raise RuntimeError(f"{backend} failed: {process.stderr.strip()}")
+    return normalize_matches(process.stdout, checkout)
 
 
 def line_is_relevant(row: dict[str, Any], locators: list[dict[str, str]]) -> bool:
@@ -180,6 +191,8 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
     for backend in ("ariadne", "rg", "grep"):
         selected = [row for row in rows if row["backend"] == backend]
         total = len(selected)
+        if not total:
+            continue
         summary[backend] = {
             "queries": total,
             "top_1_hit_rate": sum(row["rank"] == 1 for row in selected) / total,
@@ -191,29 +204,52 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
     return summary
 
 
+def markdown_table(summary: dict[str, dict[str, float]]) -> list[str]:
+    lines = [
+        "| Backend | Queries | Top-1 | Top-3 | MRR | Median warm query | Mean output tokens |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for backend in ("ariadne", "rg", "grep"):
+        row = summary[backend]
+        lines.append(
+            f"| {backend} | {row['queries']} | {row['top_1_hit_rate']:.1%} | "
+            f"{row['top_3_hit_rate']:.1%} | {row['mrr']:.3f} | "
+            f"{row['median_query_ms']:.2f} ms | {row['mean_output_tokens']:.1f} |"
+        )
+    return lines
+
+
 def markdown_report(report: dict[str, Any]) -> str:
     lines = [
         "# Ariadne Benchmark",
         "",
-        f"Pinned sample: [`spring-petclinic-microservices@{report['sample_revision'][:8]}`]({REPO_URL[:-4]}/commit/{report['sample_revision']})",
+        f"**{report['query_count']} manually reviewed queries across {len(report['samples'])} pinned public stacks.**",
         "",
         "All backends receive the same literal hints. Retrieval metrics use manually reviewed contract nodes/lines. "
         "Tokens count the exact serialized top-3 Ariadne payload or complete normalized baseline output with `cl100k_base`. "
         "Query time is the median of five warm runs; Ariadne indexing is reported separately.",
         "",
-        f"Ariadne index time: **{report['index_seconds']:.3f} s**",
+        "## Aggregate",
         "",
-        "| Backend | Top-1 | Top-3 | MRR | Median warm query | Mean output tokens |",
-        "|---|---:|---:|---:|---:|---:|",
+        *markdown_table(report["summary"]),
+        "",
+        "## Per sample",
+        "",
     ]
-    for backend in ("ariadne", "rg", "grep"):
-        row = report["summary"][backend]
-        lines.append(
-            f"| {backend} | {row['top_1_hit_rate']:.1%} | {row['top_3_hit_rate']:.1%} | "
-            f"{row['mrr']:.3f} | {row['median_query_ms']:.2f} ms | {row['mean_output_tokens']:.1f} |"
-        )
+    for sample_name, sample in report["samples"].items():
+        lines.extend([
+            f"### {sample_name}",
+            "",
+            f"Pinned revision: `{sample['revision']}`",
+            "",
+            f"Queries: {sample['query_count']}",
+            "",
+            f"Ariadne index time: {sample['index_seconds']:.3f} s",
+            "",
+            *markdown_table(sample["summary"]),
+            "",
+        ])
     lines.extend([
-        "",
         "## Reproduce",
         "",
         "```bash",
@@ -222,7 +258,10 @@ def markdown_report(report: dict[str, Any]) -> str:
         "```",
         "",
         "Raw per-query evidence is in [`benchmarks/results.json`](benchmarks/results.json). "
-        "Results are local-machine evidence, not a universal performance claim.",
+        "Results are local-machine evidence, not a universal performance claim. "
+        "The corpus is operation-name-heavy with a smaller set of broader business hints; "
+        "it measures deterministic contract lookup compatibility, not natural-language relevance. "
+        "No ranking was tuned for this run.",
         "",
     ])
     return "\n".join(lines)
@@ -233,64 +272,80 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if shutil.which(binary) is None:
             raise RuntimeError(f"required executable not found: {binary}")
     count_tokens = token_counter()
-    work = args.work_dir.resolve()
-    sample = work / "spring-petclinic-microservices"
-    work.mkdir(parents=True, exist_ok=True)
-    ensure_sample(sample)
-    config = work / "ariadne.config.json"
-    db_path = work / "ariadne.db"
-    write_config(sample, config)
-    index_seconds = build_index(config, db_path)
+    sample_specs = load_samples(args.samples)
+    rows = []
+    sample_reports = {}
 
     from ariadne_mcp.query.query import query
     from ariadne_mcp.store.db import DB
 
-    db = DB(str(db_path))
-    rows = []
-    for judgment in load_judgments(args.judgments):
-        hint = judgment["hint"]
-        expected = set(judgment["expected_node_ids"])
-        ariadne_results, ariadne_ms = timed(lambda: query(db, hint, top_n=TOP_K))
-        ariadne_text = serialize_ariadne(ariadne_results)
-        ariadne_rank = rank_of(ariadne_results, lambda item: cluster_is_relevant(item, expected))
-        rows.append({
-            "hint": hint,
-            "backend": "ariadne",
-            "rank": ariadne_rank,
-            "query_ms": ariadne_ms,
-            "output_tokens": count_tokens(ariadne_text),
-            "result_count": len(ariadne_results),
-            "serialized_output": ariadne_text,
-        })
-        for backend in ("rg", "grep"):
-            matches, query_ms = timed(lambda backend=backend: run_baseline(backend, hint, sample))
-            serialized = "\n".join(f"{row['path']}:{row['line']}:{row['text']}" for row in matches)
-            rank = rank_of(matches, lambda item: line_is_relevant(item, judgment["baseline_locators"]))
-            rows.append({
+    for sample_name, sample_spec in sample_specs.items():
+        sample = prepare_sample(sample_name, sample_spec, args.work_dir.resolve())
+        index_seconds = build_index(sample["config"], sample["db"])
+        db = DB(str(sample["db"]))
+        sample_rows = []
+        for judgment in sample["judgments"]:
+            hint = judgment["hint"]
+            expected = set(judgment["expected_node_ids"])
+            ariadne_results, ariadne_ms = timed(lambda: query(db, hint, top_n=TOP_K))
+            ariadne_text = serialize_ariadne(ariadne_results)
+            ariadne_rank = rank_of(ariadne_results, lambda item: cluster_is_relevant(item, expected))
+            sample_rows.append({
+                "sample": sample_name,
                 "hint": hint,
-                "backend": backend,
-                "rank": rank,
-                "query_ms": query_ms,
-                "output_tokens": count_tokens(serialized),
-                "result_count": len(matches),
-                "serialized_output": serialized,
+                "backend": "ariadne",
+                "rank": ariadne_rank,
+                "query_ms": ariadne_ms,
+                "output_tokens": count_tokens(ariadne_text),
+                "result_count": len(ariadne_results),
+                "serialized_output": ariadne_text,
             })
-    db.close()
+            for backend in ("rg", "grep"):
+                matches, query_ms = timed(
+                    lambda backend=backend: run_baseline(
+                        backend, hint, sample["checkout"], sample["source_globs"]
+                    )
+                )
+                serialized = "\n".join(
+                    f"{row['path']}:{row['line']}:{row['text']}" for row in matches
+                )
+                rank = rank_of(
+                    matches,
+                    lambda item: line_is_relevant(item, judgment["baseline_locators"]),
+                )
+                sample_rows.append({
+                    "sample": sample_name,
+                    "hint": hint,
+                    "backend": backend,
+                    "rank": rank,
+                    "query_ms": query_ms,
+                    "output_tokens": count_tokens(serialized),
+                    "result_count": len(matches),
+                    "serialized_output": serialized,
+                })
+        db.close()
+        rows.extend(sample_rows)
+        sample_reports[sample_name] = {
+            "revision": sample["metadata"]["revision"],
+            "query_count": len(sample["judgments"]),
+            "index_seconds": index_seconds,
+            "summary": summarize(sample_rows),
+        }
+
     return {
-        "schema_version": 1,
-        "sample_url": REPO_URL,
-        "sample_revision": REPO_REVISION,
+        "schema_version": 2,
         "query_repetitions": REPETITIONS,
         "top_k": TOP_K,
-        "index_seconds": index_seconds,
+        "query_count": sum(sample["query_count"] for sample in sample_reports.values()),
         "summary": summarize(rows),
+        "samples": sample_reports,
         "results": rows,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--judgments", type=Path, default=BENCHMARK_DIR / "judgments.jsonl")
+    parser.add_argument("--samples", type=Path, default=BENCHMARK_DIR / "samples.json")
     parser.add_argument("--work-dir", type=Path, default=BENCHMARK_DIR / ".work")
     parser.add_argument("--json-output", type=Path, default=BENCHMARK_DIR / "results.json")
     parser.add_argument("--markdown-output", type=Path, default=ROOT / "BENCHMARKS.md")
