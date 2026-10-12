@@ -166,3 +166,20 @@ eval.
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Custom scanners (Go,
 Rust, anything) → [`docs/CUSTOM_SCANNERS.md`](docs/CUSTOM_SCANNERS.md).
 Maintainer adoption snapshots → [`docs/ADOPTION_METRICS.md`](docs/ADOPTION_METRICS.md).</sub>
+
+
+### Business acceptance and ablation
+
+The source-backed business suite covers all nine built-in scanners and the
+complete MCP query/expand/rate/rescan lifecycle, including a real stdio client.
+It uses synthetic contracts; private workspace sources and feedback stay local.
+
+```bash
+python -m pip install -e '.[benchmark]' pytest
+python -m pytest tests/ -q
+python benchmarks/ablation.py --output benchmarks/.work/ablation.json
+```
+
+See [quality experiment results](docs/QUALITY_EXPERIMENT.md) for the fixed-input
+baseline, component ablations, output costs and remaining limitations. The
+current server uses MCP Python SDK v1 (`mcp<2`).

@@ -6,7 +6,7 @@ Extracts:
 """
 import re
 from pathlib import Path
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 
 class GraphQLScanner(BaseScanner):
@@ -19,7 +19,7 @@ class GraphQLScanner(BaseScanner):
 def scan_graphql_files(repo_path: str, service: str) -> list[dict]:
     nodes = []
     repo = Path(repo_path)
-    gql_files = list(repo.rglob("*.gql")) + list(repo.rglob("*.graphql"))
+    gql_files = list(source_files(repo, "*.gql")) + list(source_files(repo, "*.graphql"))
 
     for fpath in gql_files:
         try:

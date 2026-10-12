@@ -91,22 +91,8 @@ def build_index(config: Path, db_path: Path) -> float:
 
 
 def serialize_ariadne(results: list[dict[str, Any]]) -> str:
-    payload = []
-    for cluster in results[:TOP_K]:
-        payload.append({
-            "confidence": cluster.get("confidence"),
-            "nodes": [
-                {
-                    "id": node.get("id"),
-                    "service": node.get("service"),
-                    "type": node.get("type"),
-                    "label": node.get("label"),
-                    "name": node.get("name"),
-                }
-                for node in cluster.get("nodes", [])
-            ],
-        })
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return json.dumps({"chains": results[:TOP_K], "stale_warning": None},
+                      sort_keys=True, separators=(",", ":"))
 
 
 def normalize_matches(stdout: str, checkout: Path) -> list[dict[str, Any]]:
@@ -226,7 +212,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"**{report['query_count']} manually reviewed queries across {len(report['samples'])} pinned public stacks.**",
         "",
         "All backends receive the same literal hints. Retrieval metrics use manually reviewed contract nodes/lines. "
-        "Tokens count the exact serialized top-3 Ariadne payload or complete normalized baseline output with `cl100k_base`. "
+        "Tokens count the complete top-3 chain envelope (including source paths and directed edges) or normalized baseline output with `cl100k_base`; empty-result guidance and transport framing are excluded. "
         "Query time is the median of five warm runs; Ariadne indexing is reported separately.",
         "",
         "## Aggregate",
@@ -261,7 +247,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         "Results are local-machine evidence, not a universal performance claim. "
         "The corpus is operation-name-heavy with a smaller set of broader business hints; "
         "it measures deterministic contract lookup compatibility, not natural-language relevance. "
-        "No ranking was tuned for this run.",
+        "These fixed labels are a development regression corpus, not a held-out natural-language benchmark. See `docs/QUALITY_EXPERIMENT.md` for upgrade and ablation results.",
         "",
     ])
     return "\n".join(lines)
@@ -351,7 +337,7 @@ def main() -> None:
     parser.add_argument("--markdown-output", type=Path, default=ROOT / "BENCHMARKS.md")
     args = parser.parse_args()
     report = run(args)
-    args.json_output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.json_output.write_text((json.dumps(report, indent=2, sort_keys=True) + "\n").replace(str(args.work_dir.resolve()), "$BENCHMARK_WORK"), encoding="utf-8")
     args.markdown_output.write_text(markdown_report(report), encoding="utf-8")
     print(f"wrote {args.json_output}")
     print(f"wrote {args.markdown_output}")

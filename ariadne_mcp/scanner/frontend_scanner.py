@@ -4,7 +4,7 @@ Extracts operation name + top-level selection fields.
 """
 import re
 from pathlib import Path
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 
 class FrontendGraphQLScanner(BaseScanner):
@@ -19,7 +19,7 @@ def scan_frontend(repo_path: str, service: str) -> list[dict]:
     repo = Path(repo_path)
 
     # Scan all .ts/.tsx files (not just graphql.ts)
-    ts_files = list(repo.rglob("*.ts")) + list(repo.rglob("*.tsx"))
+    ts_files = list(source_files(repo, "*.ts")) + list(source_files(repo, "*.tsx"))
     ts_files = [f for f in ts_files if "node_modules" not in str(f)]
     for fpath in ts_files:
         try:

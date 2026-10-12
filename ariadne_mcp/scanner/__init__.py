@@ -40,3 +40,25 @@ class BaseScanner(ABC):
     @abstractmethod
     def scan(self, repo_path: str, service: str) -> list[dict]:
         """Scan *repo_path* and return a list of node dicts."""
+
+
+# One policy for source discovery, including auto-detection. Prune before reading
+# so generated copies cannot overwrite authoritative contracts with the same ID.
+EXCLUDED_DIRS = frozenset({
+    ".git", "node_modules", "dist", "build", "target", "coverage", ".next",
+    "__pycache__", ".venv", "venv", "vendor", "__tests__",
+})
+
+
+def source_files(root, pattern="*"):
+    """Yield deterministic source paths without traversing generated/vendor trees."""
+    import fnmatch
+    import os
+    from pathlib import Path
+    root = Path(root)
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in EXCLUDED_DIRS)
+        for name in sorted(files):
+            path = Path(directory) / name
+            if fnmatch.fnmatchcase(name, pattern) and not path.is_symlink():
+                yield path

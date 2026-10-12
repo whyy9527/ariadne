@@ -1,0 +1,51 @@
+{
+  "repos": [
+    {
+      "path": "web",
+      "scanners": [
+        "frontend_graphql",
+        {
+          "type": "frontend_rest",
+          "base_class_service": {
+            "OrderBackend": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "path": "gateway",
+      "scanners": [
+        "graphql",
+        {
+          "type": "ts_http_outbound"
+        }
+      ]
+    },
+    {
+      "path": "orders",
+      "scanners": [
+        "http",
+        "kafka"
+      ]
+    },
+    {
+      "path": "fulfillment",
+      "scanners": [
+        "kafka",
+        "backend_clients"
+      ]
+    },
+    {
+      "path": "health",
+      "scanners": [
+        "fastapi"
+      ]
+    },
+    {
+      "path": "analytics",
+      "scanners": [
+        "cube"
+      ]
+    }
+  ]
+}

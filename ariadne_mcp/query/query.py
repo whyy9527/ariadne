@@ -8,14 +8,41 @@ import sys
 from ariadne_mcp.normalizer.normalizer import split_tokens
 from ariadne_mcp.scoring.engine import build_clusters, find_anchors
 
-# Rerank weights applied to clusters with historical explicit/implicit feedback.
-# Kept conservative — lexical confidence should still dominate sparse feedback.
-_POSITIVE_FEEDBACK_ALPHA = 0.15
-_NEGATIVE_FEEDBACK_ALPHA = 0.10
-_BOOST_ALPHA = _POSITIVE_FEEDBACK_ALPHA  # backwards-compatible name for tests/users
+# A feedback judgment can break a close lexical tie, never accumulate without
+# bound. Exploration is retained in the feedback DB but is not a judgment.
+_FEEDBACK_LIMIT = 0.10
 
 
-def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
+def _feedback_adjustment(node_ids, counts):
+    evidence = []
+    for nid in set(node_ids):
+        row = counts.get(nid)
+        if row:
+            total = row["accepted"] + row["rejected"]
+            if total:
+                evidence.append((row["accepted"] - row["rejected"]) / total)
+    return _FEEDBACK_LIMIT * sum(evidence) / max(len(evidence), 1)
+
+
+def _eligible_anchors(all_nodes, anchors, hint):
+    # A structural GraphQL qualifier must not resolve to commercial billing.
+    tokens = set(split_tokens(hint))
+    if "graphql" in hint.casefold().split() and "subscription" in tokens:
+        typed = [n for n in all_nodes if n["type"] in {
+            "graphql_subscription", "frontend_subscription",
+        }]
+        remainder = tokens - {"graphql", "graph", "ql", "subscription"}
+        return (find_anchors(typed, " ".join(sorted(remainder))) if remainder
+                else sorted(typed, key=lambda n: n["id"])[:30])
+    effective = _effective_hint_tokens(all_nodes, hint)
+    # Multi-token hints need a majority of their business terms in one anchor.
+    required = min(len(effective), max(2, len(effective) // 2 + 1))
+    return [n for n in anchors if _hint_match_count(
+        n, effective
+    ) >= required]
+
+
+def query(db, hint: str, top_n: int = 5, fdb=None, *, singleton_fallback: bool = True, evidence_gate: bool = True) -> list[dict]:
     """
     Input: business word OR endpoint/topic name.
     Output: list of cluster dicts with enriched node info.
@@ -25,54 +52,32 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
     """
     from ariadne_mcp.scoring.engine import set_idf
     idf = db.get_token_idf()
-    if idf:
-        set_idf(idf)
+    set_idf(idf)
 
     all_nodes = db.get_all_nodes()
 
     # Anchor-first edge fetching: find relevant nodes first, then only pull their edges.
     # This scales with anchor count (~30), not corpus size — no magic limit needed.
+    if top_n < 1:
+        raise ValueError("top_n must be positive")
     anchors = find_anchors(all_nodes, hint)
+    if evidence_gate:
+        anchors = _eligible_anchors(all_nodes, anchors, hint)
 
     anchor_ids = [a["id"] for a in anchors]
     anchor_edges = db.get_edges_for_nodes(anchor_ids, min_score=0.25)
 
     clusters = build_clusters(all_nodes, anchor_edges, query_hint=hint,
-                              anchors=anchors, top_n=top_n)
+                              anchors=anchors, top_n=max(10, top_n))
+
+    if not clusters and singleton_fallback:
+        from ariadne_mcp.scoring.engine import _node_hint_score
+        hint_tokens = _effective_hint_tokens(all_nodes, hint)
+        clusters = [{"node_ids": [a["id"]],
+                     "confidence": round(_node_hint_score(a, hint_tokens), 3)}
+                    for a in anchors[:min(top_n, 3)]]
 
     node_map = {n["id"]: n for n in all_nodes}
-
-    # Feedback rerank: lift accepted nodes and lightly demote rejected nodes.
-    # Controlled by ARIADNE_FEEDBACK_BOOST env var (default: enabled).
-    boost_enabled = os.environ.get("ARIADNE_FEEDBACK_BOOST", "1") != "0"
-    if boost_enabled and fdb is not None and clusters:
-        try:
-            feedback_counts = fdb.get_node_feedback_counts(hint)
-            if feedback_counts:
-                reranked = False
-                for c in clusters:
-                    adjustment = 0.0
-                    for nid in c.get("node_ids", []):
-                        counts = feedback_counts.get(nid)
-                        if not counts:
-                            continue
-                        adjustment += _POSITIVE_FEEDBACK_ALPHA * counts["accepted"]
-                        adjustment -= _NEGATIVE_FEEDBACK_ALPHA * counts["rejected"]
-                    if adjustment:
-                        c["confidence"] = round(max(0, c["confidence"] + adjustment), 6)
-                        reranked = True
-                if reranked:
-                    clusters.sort(key=lambda c: c["confidence"], reverse=True)
-                    n_reranked = sum(
-                        1 for c in clusters
-                        if any(feedback_counts.get(nid) for nid in c.get("node_ids", []))
-                    )
-                    print(
-                        f"[ariadne] feedback rerank applied: hint={hint!r} clusters_reranked={n_reranked}",
-                        file=sys.stderr,
-                    )
-        except Exception as _boost_err:
-            print(f"[ariadne] boost error (non-fatal): {_boost_err}", file=sys.stderr)
 
     enriched = []
     seen_result_sets: set[frozenset[str]] = set()
@@ -85,6 +90,12 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
             raw_nodes.append(n)
 
         raw_nodes = _filter_nodes_for_hint(raw_nodes, all_nodes, hint)
+        if evidence_gate and "graphql" in hint.casefold().split() and "subscription" in split_tokens(hint):
+            raw_nodes = [n for n in raw_nodes if n["type"] in {
+                "graphql_subscription", "frontend_subscription",
+            }]
+        if not raw_nodes:
+            continue
         result_set = frozenset(n["id"] for n in raw_nodes)
         if result_set in seen_result_sets:
             continue
@@ -126,7 +137,22 @@ def query(db, hint: str, top_n: int = 5, fdb=None) -> list[dict]:
             "directed_edges": directed_edges_deduped,
         })
 
-    return enriched
+    # Judge only evidence actually returned to the caller, after filtering and
+    # trimming. Hidden neighbours must not influence the visible result rank.
+    if os.environ.get("ARIADNE_FEEDBACK_BOOST", "1") != "0" and fdb is not None:
+        try:
+            counts = fdb.get_node_feedback_counts(hint, explicit_only=True)
+            changed = False
+            for cluster in enriched:
+                adjustment = _feedback_adjustment([n["id"] for n in cluster["nodes"]], counts)
+                if adjustment:
+                    cluster["confidence"] = round(min(1, max(0, cluster["confidence"] + adjustment)), 6)
+                    changed = True
+            if changed:
+                enriched.sort(key=lambda c: (-c["confidence"], tuple(n["id"] for n in c["nodes"])))
+        except Exception as exc:
+            print(f"[ariadne] feedback error (non-fatal): {exc}", file=sys.stderr)
+    return enriched[:top_n]
 
 
 def expand(db, node_id_or_name: str, hops: int = 1) -> list[dict]:
@@ -135,8 +161,7 @@ def expand(db, node_id_or_name: str, hops: int = 1) -> list[dict]:
     """
     from ariadne_mcp.scoring.engine import set_idf
     idf = db.get_token_idf()
-    if idf:
-        set_idf(idf)
+    set_idf(idf)
 
     all_nodes = db.get_all_nodes()
     # Find matching node
@@ -254,6 +279,7 @@ def _format_node(n: dict) -> dict:
         "name": n.get("raw_name"),
         "service": n.get("service"),
         "id": n.get("id"),
+        "source_file": n.get("source_file"),
     }
 
 

@@ -14,6 +14,7 @@ Scan is config-driven. Pass --config PATH (default: ariadne.config.json in the
 current working directory). See ariadne.config.example.json for the format.
 """
 import argparse
+import hashlib
 import json
 import sys
 import os
@@ -236,7 +237,8 @@ def _is_noise_path(path: str) -> bool:
 
 def _has_file(repo_path: str, suffixes: tuple[str, ...], name_contains: str | None = None) -> bool:
     root = Path(repo_path)
-    for f in root.rglob("*"):
+    from ariadne_mcp.scanner import source_files
+    for f in source_files(root):
         if not f.is_file():
             continue
         p = str(f)
@@ -252,7 +254,8 @@ def _has_file(repo_path: str, suffixes: tuple[str, ...], name_contains: str | No
 
 def _file_text_contains(repo_path: str, suffixes: tuple[str, ...], needles: tuple[str, ...]) -> bool:
     root = Path(repo_path)
-    for f in root.rglob("*"):
+    from ariadne_mcp.scanner import source_files
+    for f in source_files(root):
         if not f.is_file():
             continue
         p = str(f)
@@ -437,6 +440,11 @@ def cmd_scan(args):
         name = entry["name"]
         path = _resolve_path(cfg_dir, entry["path"])
         scanners = entry.get("scanners", [])
+        # Reuse depends on scanner configuration and extraction format as well
+        # as HEAD. Changing a target map or upgrading an old index must rescan.
+        signature = hashlib.sha256(json.dumps(
+            {"scanners": scanners, "extraction_format": 2}, sort_keys=True,
+        ).encode()).hexdigest()
         if not os.path.isdir(path):
             if force:
                 removed = db.delete_nodes_by_service(name)
@@ -464,6 +472,8 @@ def cmd_scan(args):
             and cur_hash is not None
             and prev_hash is not None
             and cur_hash == prev_hash
+            and prev.get("repo_path") == path
+            and prev.get("scan_signature") == signature
             and len(existing_nodes) > 0
         )
 
@@ -511,7 +521,7 @@ def cmd_scan(args):
             db.upsert_node(node, norm["tokens"], norm["field_tokens"])
             enriched.append(node)
 
-        db.upsert_repo_state(name, cur_hash, now)
+        db.upsert_repo_state(name, cur_hash, now, repo_path=path, scan_signature=signature)
         db.commit()
 
         hash_tag = cur_hash[:8] if cur_hash else "no-git"
@@ -520,6 +530,8 @@ def cmd_scan(args):
         summary = ", ".join(counts) if counts else "no scanners"
         print(f"  {name}: RESCAN [{hash_tag}]{prev_tag} {summary}{drop_tag}")
 
+    # Edge scoring and persisted queries must see the same canonical node set.
+    enriched = list({node["id"]: node for node in enriched}.values())
     if not enriched:
         print("ERROR: no nodes in DB after scan. Check config paths and scanner types.", file=sys.stderr)
         sys.exit(1)
@@ -528,6 +540,7 @@ def cmd_scan(args):
         print(f"\n[2/4] All repos unchanged — skipping normalize/IDF/scoring.")
         print(f"Done. DB: {args.db}")
         print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
+        db.close()
         return
 
     print(f"\n[2/4] Normalizing — {len(enriched)} nodes total")
@@ -540,6 +553,7 @@ def cmd_scan(args):
 
     print("[3/4] Computing TF-IDF weights...")
     idf = compute_idf(enriched)
+    db.conn.execute("DELETE FROM token_idf")
     db.upsert_token_idf(idf)
     db.commit()
     set_idf(idf)
@@ -567,6 +581,7 @@ def cmd_scan(args):
 
     print(f"Done. DB: {args.db}")
     print(f"  Nodes: {db.node_count()}, Edges: {db.edge_count()}")
+    db.close()
 
 
 def cmd_query(args):
@@ -661,6 +676,7 @@ def run_scan(config_path: str, db_path: str, force: bool = False) -> dict:
     from ariadne_mcp.store.db import DB as _DB
     _db = _DB(db_path)
     n_nodes = _db.node_count()
+    _db.close()
 
     return {
         "nodes": n_nodes,

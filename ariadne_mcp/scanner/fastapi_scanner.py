@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "options", "head"}
@@ -23,7 +23,7 @@ class FastAPIScanner(BaseScanner):
 def scan_fastapi_routes(repo_path: str, service: str) -> list[dict]:
     repo = Path(repo_path)
     nodes: list[dict] = []
-    for source_file in sorted(repo.rglob("*.py")):
+    for source_file in sorted(source_files(repo, "*.py")):
         if any(part in EXCLUDED_PARTS for part in source_file.parts):
             continue
         try:

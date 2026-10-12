@@ -40,7 +40,7 @@ Config example (in ariadne.config.json):
 import logging
 import re
 from pathlib import Path
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 # Module-level set so each fallback settings key logs only once per process run
 _logged_fallback_keys: set[str] = set()
@@ -137,7 +137,7 @@ def scan_ts_http_outbound(
     repo = Path(repo_path)
 
     ts_files = [
-        f for f in repo.rglob("*.ts")
+        f for f in source_files(repo, "*.ts")
         if not _is_excluded(str(f))
     ]
 

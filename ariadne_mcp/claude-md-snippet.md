@@ -32,3 +32,10 @@ rate_result(hint="...", cluster_rank=1, node_ids=[...], accepted=true/false)
 - `accepted=false`: result was irrelevant or misleading
 - If this is feedback for a recent `query_chains` result, `node_ids` may be
   omitted; Ariadne infers them from `hint + cluster_rank`.
+
+- Expanding a node records exploration; explicit source-verified judgments affect
+  ranking. The recent query association remains available after expansion.
+- For expansion feedback, use `cluster_rank=0` with the expansion hint.
+- Returned nodes include `source_file`; read it to verify a candidate chain.
+- A non-null `stale_warning` calls for `rescan()` and a query retry. Force a scan
+  after uncommitted source edits as well.

@@ -49,7 +49,20 @@ _STALE_DAYS = 7
 
 
 def _build_stale_warning(db) -> "str | None":
-    """Return a stale-scan warning string if the oldest scan is older than _STALE_DAYS, else None."""
+    """Warn about missing repositories, HEAD drift, or scan age."""
+    from ariadne_mcp.cli import _git_head_hash
+    changed = []
+    for name in db.get_repo_state_names():
+        state = db.get_repo_state(name)
+        path = state.get("repo_path")
+        if not path:
+            continue  # pre-migration indexes still have the age-based warning
+        if not os.path.isdir(path):
+            changed.append(f"{name} (missing repository)")
+        elif state.get("git_hash") and _git_head_hash(path) != state["git_hash"]:
+            changed.append(f"{name} (HEAD changed)")
+    if changed:
+        return "Index differs from source: " + ", ".join(changed) + ". Call rescan()."
     try:
         oldest = db.get_oldest_scanned_at()
     except Exception:
@@ -128,7 +141,10 @@ def _reset_db_cache() -> None:
     freshly rescanned file. Feedback DB is unaffected by rescan, so it stays warm.
     """
     global _db
+    if _db is not None:
+        _db.close()
     _db = None
+    _PendingQueries.clear()
 
 
 # ── Tool declarations ──────────────────────────────────────────────────────────
@@ -166,8 +182,8 @@ async def list_tools() -> list[Tool]:
             description=(
                 "One-hop neighbours of a known node (endpoint / Kafka topic / "
                 "GraphQL operation / frontend call), with similarity scores and "
-                "file paths. Read-only; no writes except an implicit positive "
-                "feedback row if called within 10 min of a matching "
+                "file paths. Read-only; no writes except a local exploration "
+                "row if called within 10 min of a matching "
                 "query_chains. Returns up to 3 matched source nodes × up to 10 "
                 "neighbours (edges with score ≥ 0.08), plus a `stale_warning` "
                 "field — call `rescan` if non-null.\n\n"
@@ -397,14 +413,14 @@ Golden path — driving Ariadne from an AI conversation:
   2. expand_node(name="order-created")
        → one-hop neighbours of a specific node you want to trace.
          If called within 10 minutes of a matching query_chains, Ariadne
-         automatically writes a positive feedback row — no extra call
-         needed. The follow-up expand IS the signal.
+         records local exploration. Expansion alone does not rerank results.
 
   3. Read the files the returned clusters / neighbours point at.
 
-  4. rate_result(hint, accepted=False, ...) ONLY when a result was
-     misleading. Most feedback is captured implicitly in step 2;
-     rate_result is the manual escape hatch for thumbs-down.
+  4. After checking source, rate_result(hint, accepted=True/False, ...).
+     Explicit usefulness judgments affect ranking within a bounded adjustment.
+     Supply the specific useful node_ids when known; otherwise hint + rank
+     refers to the recent returned cluster, including after expansion.
 
   Staleness: if query_chains or expand_node return a non-null
   `stale_warning` field, call rescan() once — it re-scans the repos
@@ -508,8 +524,7 @@ def _extract_cluster_node_names(results: list[dict]) -> list[dict]:
     Convert query() result list into a compact structure for pending cache.
     Returns [{"rank": 1, "node_names": {name, ...}, "node_ids": [...]}, ...]
     Each cluster captures both the node "name" (raw_name) and "id" fields so
-    expand_node partial-name matching works correctly and implicit feedback can
-    contribute to future reranking.
+    expansion can be associated with the actual returned source node IDs.
     """
     clusters = []
     for i, cluster in enumerate(results, 1):
@@ -551,7 +566,16 @@ async def _query_chains(db, arguments: dict) -> list[TextContent]:
     stale_warning = _build_stale_warning(db)
 
     if not results:
-        payload = {"chains": [], "stale_warning": stale_warning}
+        payload = {
+            "chains": [], "stale_warning": stale_warning,
+            "reason": "No indexed contract has sufficient evidence for this hint.",
+            "next_step": (
+                "Call rescan(), then retry the exact operation or route."
+                if stale_warning else
+                "Try an exact operation or route, or search repository source. "
+                "This index covers API contracts, not arbitrary classes, UI or deployment configuration."
+            ),
+        }
         return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
     # Cache this query for potential implicit feedback from a follow-up expand_node
@@ -583,17 +607,19 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
         }
         return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
 
-    # Implicit feedback: if this expand_node name matches a node from a recent
-    # query_chains result, treat it as positive feedback for that cluster.
-    name_lower = name.lower()
+    # Record exploration separately from explicit usefulness judgments.
+    source_ids = {r["source"]["id"] for r in results}
     now = time.time()
     matched_hints = []
     for entry in list(_PendingQueries):
         if now - entry["ts"] > _PENDING_TTL:
             continue  # silently skip expired entries (no negative feedback)
         for cluster in entry["clusters"]:
-            # Substring match mirrors expand()'s own partial name logic
-            if any(name_lower in n or n in name_lower for n in cluster["node_names"]):
+            # Attribute exploration to actual expanded sources, not a broad
+            # substring or every node in the candidate cluster.
+            if cluster["rank"] == 0 or cluster["rank"] in entry.get("expanded_ranks", set()):
+                continue
+            if source_ids & set(cluster["node_ids"]):
                 matched_hints.append((entry, cluster))
                 break  # one cluster match per pending query is enough
 
@@ -604,17 +630,21 @@ async def _expand_node(db, arguments: dict) -> list[TextContent]:
                 fdb.log(
                     hint=entry["hint"],
                     cluster_rank=cluster["rank"],
-                    node_ids=list(cluster.get("node_ids", [])),
+                    node_ids=sorted(source_ids & set(cluster.get("node_ids", []))),
                     accepted=True,
                     source="implicit_expand",
                 )
             except Exception as e:
                 print(f"[ariadne] implicit feedback write failed: {e}", file=sys.stderr)
-            # Remove from pending to avoid double-counting
-            try:
-                _PendingQueries.remove(entry)
-            except ValueError:
-                pass  # already removed (race within same process is impossible in asyncio, but be safe)
+            # Keep the result association for a later explicit judgment.
+            entry.setdefault("expanded_ranks", set()).add(cluster["rank"])
+
+    expanded_ids = sorted(source_ids | {
+        nb["node"]["id"] for r in results for nb in r["neighbors"]
+    })
+    _PendingQueries.append({"hint": name, "ts": now, "clusters": [
+        {"rank": 0, "node_ids": expanded_ids, "node_names": set()},
+    ]})
 
     # Build next-step guidance based on state
     if stale_warning:
@@ -634,7 +664,7 @@ async def _rate_result(fdb, arguments: dict) -> list[TextContent]:
     cluster_rank = int(arguments.get("cluster_rank", 1))
     node_ids = arguments.get("node_ids", [])
     accepted = bool(arguments["accepted"])
-    if not node_ids and cluster_rank > 0:
+    if not node_ids and cluster_rank >= 0:
         node_ids = _infer_pending_node_ids(hint, cluster_rank)
 
     fdb.log(hint=hint, cluster_rank=cluster_rank, node_ids=node_ids, accepted=accepted)

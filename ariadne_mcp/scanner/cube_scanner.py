@@ -7,7 +7,7 @@ Produces one node per cube, with measures + dimensions as fields.
 """
 import re
 from pathlib import Path
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 
 class CubeScanner(BaseScanner):
@@ -37,7 +37,7 @@ def scan_cubes(repo_path: str, service: str) -> list[dict]:
     if not model_dir.is_dir():
         return nodes
 
-    for fpath in model_dir.rglob("*.js"):
+    for fpath in source_files(model_dir, "*.js"):
         try:
             text = fpath.read_text(encoding="utf-8", errors="ignore")
         except Exception:

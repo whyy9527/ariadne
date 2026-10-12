@@ -1,0 +1,14 @@
+type Query {
+    studentProfileSummary: StudentProfileSummary
+    getOrder(id: ID!): Order
+}
+type Mutation {
+    createOrder(customerId: ID!): Order
+    createSubscription: BillingSubscription
+}
+type Subscription {
+    orderChanged: Order
+}
+type Order { id: ID! customerId: ID! }
+type StudentProfileSummary { id: ID! displayName: String }
+type BillingSubscription { id: ID! billingPeriod: String }

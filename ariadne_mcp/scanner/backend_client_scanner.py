@@ -13,7 +13,7 @@ repo violates that convention (e.g. {"aiadapter": "ai-adapter"}).
 import logging
 import re
 from pathlib import Path
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 # Module-level set so each fallback dirname logs only once per process run
 _logged_fallback_dirnames: set[str] = set()
@@ -39,7 +39,7 @@ def scan_backend_clients(
     repo = Path(repo_path)
 
     client_files = [
-        f for f in repo.rglob("*Client.java")
+        f for f in source_files(repo, "*Client.java")
         if "dto" not in str(f) and "Config" not in f.name
         and "exception" not in str(f) and "Impl" not in f.name
         and "src/main" in str(f)

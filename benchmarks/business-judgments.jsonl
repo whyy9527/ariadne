@@ -1,0 +1,12 @@
+{"hint":"createOrder","expected_node_ids":["web::frontend::mutation::CreateOrder","gateway::gql::Mutation::createOrder","orders::http::POST::/orders::createOrder"],"match":"all"}
+{"hint":"getOrder","expected_node_ids":["gateway::gql::Query::getOrder","orders::http::GET::/orders/{id}::getOrder"],"match":"all"}
+{"hint":"order-created","expected_node_ids":["orders::kafka::produce::order-created","fulfillment::kafka::consume::order-created"],"match":"all"}
+{"hint":"studentProfileSummary","expected_node_ids":["gateway::gql::Query::studentProfileSummary","web::frontend::query::StudentProfileSummary"],"match":"all"}
+{"hint":"GraphQL subscription","expected_node_ids":["gateway::gql::Subscription::orderChanged","web::frontend::subscription::OrderChanged"],"match":"any","forbidden_node_ids":["gateway::gql::Mutation::createSubscription"]}
+{"hint":"ping","expected_node_ids":["health::http::GET::/ping::ping"],"match":"all"}
+{"hint":"staleGeneratedOperation","expected_node_ids":[],"expect_empty":true}
+{"hint":"dependencyOnlyOperation","expected_node_ids":[],"expect_empty":true}
+{"hint":"nginx order cache purge","expected_node_ids":[],"expect_empty":true}
+{"hint":"STOMP authentication interceptor","expected_node_ids":[],"expect_empty":true}
+{"hint":"billing subscription websocket interceptor","expected_node_ids":[],"expect_empty":true}
+{"hint":"unindexedWidget","expected_node_ids":[],"expect_empty":true}

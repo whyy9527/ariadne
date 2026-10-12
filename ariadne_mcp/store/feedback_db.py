@@ -35,6 +35,7 @@ class FeedbackDB:
 
     def _migrate(self):
         """Add 'source' column to existing DBs that pre-date this schema."""
+        self.conn.execute("BEGIN IMMEDIATE")
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(feedback)")}
         if "source" not in cols:
             self.conn.execute(_MIGRATE_ADD_SOURCE)
@@ -49,7 +50,7 @@ class FeedbackDB:
         )
         self.conn.commit()
 
-    def get_node_feedback_counts(self, hint: str, max_age_days: int = 90) -> dict[str, dict[str, int]]:
+    def get_node_feedback_counts(self, hint: str, max_age_days: int = 90, *, explicit_only: bool = False) -> dict[str, dict[str, int]]:
         """
         Return {node_id: {"accepted": n, "rejected": n}} for feedback rows
         matching this hint. Only considers rows newer than max_age_days.
@@ -58,8 +59,8 @@ class FeedbackDB:
         cutoff_ts = int(time.time()) - max_age_days * 86400
         rows = self.conn.execute(
             "SELECT node_ids, accepted FROM feedback "
-            "WHERE hint = ? AND ts >= ?",
-            (hint, cutoff_ts),
+            "WHERE hint = ? AND ts >= ? AND (? = 0 OR source = 'manual')",
+            (hint, cutoff_ts, int(explicit_only)),
         ).fetchall()
         counts: dict[str, dict[str, int]] = {}
         for row in rows:

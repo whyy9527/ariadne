@@ -279,6 +279,16 @@ def _node_hint_score(node: dict, hint_tokens: set) -> float:
     if not hint_tokens:
         return 0.0
     name_jac = len(hint_tokens & nt) / max(len(hint_tokens | nt), 1)
+    # A REST route is a first-class contract identifier. Generic handler names
+    # such as get/save must not hide a directly matching route behind DTO names.
+    path = node.get("path")
+    if path:
+        path_tokens = set(split_tokens(path))
+        literal_segments = [part for part in path.split("/") if part and "{" not in part and ":" not in part]
+        terminal = set(split_tokens(literal_segments[-1])) if literal_segments else set()
+        path_jac = len(hint_tokens & path_tokens) / max(len(hint_tokens | path_tokens), 1)
+        terminal_jac = len(hint_tokens & terminal) / max(len(hint_tokens | terminal), 1)
+        name_jac = max(name_jac, path_jac, terminal_jac)
     field_jac = len(hint_tokens & nf) / max(len(hint_tokens | nf), 1)
     return name_jac * 0.75 + field_jac * 0.25
 

@@ -69,35 +69,40 @@ Two-stage, `O(anchors × neighbours)`, independent of repo count.
 4. Per cluster, take top 2 nodes per `(service, type)`, capped at 12.
 5. `confidence = mean_edge_score · 0.6 + type_diversity · 0.2 + service_diversity · 0.2`
 
-## Feedback boost
+## Feedback reranking
 
-A final rerank step that adapts ranking to your team's vocabulary — no
-model training, no uploads. `feedback.db` is local per developer.
+`feedback.db` stores local exploration and explicit usefulness judgments.
+Queries retain their result association for ten minutes, including after an
+expansion. An expansion records the actual expanded source IDs once per query
+cluster. Explicit `rate_result` can infer returned node IDs from hint and rank;
+rank zero refers to a recent expansion. Rescanning clears these associations.
 
-Every `query_chains` call caches returned clusters for 10 minutes. A
-follow-up `expand_node(name)` that substring-matches a node in a pending
-cluster auto-writes an `accepted=True` row with that cluster's node ids —
-the expand IS the signal.
-`rate_result(hint, accepted, ...)` is the manual escape hatch for
-thumbs-down. If `node_ids` is omitted, a recent `hint + cluster_rank`
-match fills them from the pending query cache.
+Only explicit (`source=manual`) judgments from the last 90 days affect ranking.
+For each visible node with judgments, compute `(accepted - rejected) / total`;
+the cluster adjustment is 0.10 times the mean of these values. Add that bounded
+adjustment to lexical confidence and clamp the result to [0, 1]. This is a ranking
+score, not a calibrated probability. Repeated identical judgments cannot increase
+the adjustment beyond its bound. Empty or exploration-only feedback preserves
+the lexical result, including its serialized representation.
 
-On the next `query()` for the same hint:
+`ARIADNE_FEEDBACK_BOOST=0` disables feedback reranking. The quality experiment
+reports feedback's effects separately from baseline lexical retrieval; local
+feedback counts alone do not establish retrieval accuracy.
 
-```
-final_score =
-  confidence
-  + 0.15 * sum(prior_accepted_count per node in cluster)
-  - 0.10 * sum(prior_rejected_count per node in cluster)
-```
+## Contract evidence and empty results
 
-Weight (`0.15`) and decay window (`90 days`) are intentionally
-conservative; rejected feedback is even lighter (`0.10`) to avoid overfitting
-one bad interaction. Lexical confidence still dominates. Disable with
-`export ARIADNE_FEEDBACK_BOOST=0`.
+Every returned node includes `source_file`. Source discovery prunes generated
+and vendor directories before reading files. Edge scoring uses the same unique
+node IDs that queries read from SQLite. Scan reuse requires unchanged HEAD,
+repository path, scanner configuration and extraction format.
 
-Day-one results are pure lexical ranking; after a few weeks they reflect
-your team's navigation patterns. Count-based, not a learned model.
+REST routes and their final literal segments participate in anchor relevance,
+so a handler named `get` or `save` can be found by its route. Multi-token hints
+require a majority of their effective business terms in an anchor; structural
+`GraphQL subscription` hints select subscription operations rather than billing
+operations. If valid anchors form no cluster, query returns at most three
+stable singleton results. No eligible anchor produces an empty result with
+MCP guidance to refine the identifier or search source.
 
 ## Evaluation
 
@@ -138,7 +143,11 @@ What an AI assistant sees once `install` is done:
 
 ## Re-scan trigger
 
-If the oldest scan is > 7 days old, MCP responses include a
-`stale_warning` field (CLI prints the same warning to stderr). From an
-AI conversation, call `rescan()`; from the shell,
-`ariadne-mcp scan --config <path>`.
+MCP responses include `stale_warning` when a recorded repository is missing,
+its HEAD differs from the scanned revision, or the oldest scan is at least seven
+days old. New index metadata records repository paths; older indexes gain
+revision checks after rescanning. CLI warnings currently check scan age.
+
+From an AI conversation, call `rescan()`; from the shell,
+`ariadne-mcp scan --config <path> --force`. Uncommitted source edits require an
+explicit forced scan; HEAD checks do not certify an unchanged working tree.

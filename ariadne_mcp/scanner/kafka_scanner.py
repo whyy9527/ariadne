@@ -7,7 +7,7 @@ Scans Kafka topics from:
 import re
 from pathlib import Path
 
-from ariadne_mcp.scanner import BaseScanner
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 try:
     import yaml
@@ -28,7 +28,7 @@ def scan_kafka(repo_path: str, service: str) -> list[dict]:
     repo = Path(repo_path)
 
     # 1. YAML config: kafka.topic.*
-    for yaml_file in repo.rglob("application*.yaml"):
+    for yaml_file in source_files(repo, "application*.yaml"):
         try:
             text = yaml_file.read_text(encoding="utf-8")
             if HAS_YAML:
@@ -44,7 +44,7 @@ def scan_kafka(repo_path: str, service: str) -> list[dict]:
     # 2. Java/Kotlin source: @KafkaListener and producer.send
     prop_map = _build_prop_map(repo)  # ${kafka.topic.xxx} → actual topic name
 
-    for src in list(repo.rglob("*.java")) + list(repo.rglob("*.kt")):
+    for src in list(source_files(repo, "*.java")) + list(source_files(repo, "*.kt")):
         if "src/test" in str(src):
             continue
         try:
@@ -100,7 +100,7 @@ def _make_topic_node(service: str, topic_name: str, source_file: str,
 def _build_prop_map(repo: Path) -> dict:
     """Build map: camelCase prop name → actual topic string from yaml."""
     prop_map = {}
-    for yaml_file in repo.rglob("application*.yaml"):
+    for yaml_file in source_files(repo, "application*.yaml"):
         try:
             text = yaml_file.read_text(encoding="utf-8")
             if HAS_YAML:

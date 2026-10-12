@@ -65,6 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_nodes_service ON nodes(service);
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Apply incremental schema migrations that CREATE TABLE IF NOT EXISTS cannot handle."""
+    # Serialize schema inspection with ALTER statements across MCP processes.
+    conn.execute("BEGIN IMMEDIATE")
     # v2: add from_service / to_service columns to edges
     edge_cols = {
         row[1]
@@ -82,6 +84,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "target_service" not in node_cols:
         conn.execute("ALTER TABLE nodes ADD COLUMN target_service TEXT")
 
+    state_cols = {row[1] for row in conn.execute("PRAGMA table_info(repo_state)")}
+    for column in ("repo_path", "scan_signature"):
+        if column not in state_cols:
+            conn.execute(f"ALTER TABLE repo_state ADD COLUMN {column} TEXT")
     conn.commit()
 
 
@@ -168,7 +174,7 @@ class DB:
 
     def get_repo_state(self, name: str) -> dict | None:
         row = self.conn.execute(
-            "SELECT name, git_hash, scanned_at FROM repo_state WHERE name=?", (name,)
+            "SELECT name, git_hash, scanned_at, repo_path, scan_signature FROM repo_state WHERE name=?", (name,)
         ).fetchone()
         return dict(row) if row else None
 
@@ -180,11 +186,11 @@ class DB:
         cur = self.conn.execute("DELETE FROM repo_state WHERE name=?", (name,))
         return cur.rowcount
 
-    def upsert_repo_state(self, name: str, git_hash: str | None, scanned_at: str):
+    def upsert_repo_state(self, name: str, git_hash: str | None, scanned_at: str, repo_path: str | None = None, scan_signature: str | None = None):
         self.conn.execute(
-            """INSERT OR REPLACE INTO repo_state (name, git_hash, scanned_at)
-               VALUES (?,?,?)""",
-            (name, git_hash, scanned_at),
+            """INSERT OR REPLACE INTO repo_state (name, git_hash, scanned_at, repo_path, scan_signature)
+               VALUES (?,?,?,?,?)""",
+            (name, git_hash, scanned_at, repo_path, scan_signature),
         )
 
     def get_oldest_scanned_at(self) -> "datetime | None":
