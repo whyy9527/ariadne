@@ -49,7 +49,7 @@ GraphQL/TypeScript, Kafka, and FastAPI):
 
 | Backend | Top-1 | Top-3 | MRR | Warm query | Mean output |
 |---|---:|---:|---:|---:|---:|
-| Ariadne | 64.6% | 70.8% | 0.677 | <0.3 ms | 157 tokens |
+| Ariadne | 89.6% | 95.8% | 0.927 | <0.4 ms | 375 tokens |
 | `rg` | 37.5% | 56.2% | 0.510 | ~9 ms | 591 tokens |
 | `grep` | 37.5% | 56.2% | 0.510 | ~9 ms | 591 tokens |
 

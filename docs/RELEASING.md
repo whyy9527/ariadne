@@ -26,10 +26,11 @@ git pull
 # 1. Bump version
 #    Edit pyproject.toml  ->  project.version
 #    Edit ariadne_mcp/__init__.py  ->  __version__
-#    Keep them in lockstep. Follow semver.
+#    Edit server.json -> version and packages[].version
+#    Keep all four values in lockstep. Follow semver.
 
 # 2. Run tests
-uv run --python 3.12 --with pytest --with mcp pytest tests/
+uv run --python 3.12 --with pytest pytest tests/
 
 # 3. Clean previous artifacts
 rm -rf dist/ build/ *.egg-info
@@ -80,7 +81,7 @@ again".
 
 ## Notes
 
-- `mcp>=1.0` is the only runtime dependency. The release architecture is local
+- `mcp>=1.0,<2` is the only runtime dependency; the server uses the SDK v1 API. The release architecture is local
   deterministic static analysis, SQLite, and token scoring.
 - Resource files (`claude-md-snippet.md`, `ariadne.config.example.json`)
   live inside the `ariadne_mcp/` package and are declared in

@@ -1,0 +1,13 @@
+include server.json BENCHMARKS.md
+include tests/conftest.py
+recursive-include tests/fixtures/business *.json *.js *.java *.ts *.gql *.py
+include benchmarks/*.py benchmarks/*.json benchmarks/*.jsonl
+include benchmarks/judgments/*.jsonl
+include examples/run.py
+include examples/*/*.json examples/*/README.md
+include scripts/adoption_snapshot.py
+include .github/ISSUE_TEMPLATE/usage-feedback.yml
+include docs/demo/setup.py docs/demo.tape
+recursive-include docs *.md
+prune benchmarks/.work
+prune examples/.work
