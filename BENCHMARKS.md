@@ -73,8 +73,18 @@ Ariadne index time: 0.186 s
 ## Reproduce
 
 ```bash
-python -m pip install -e '.[benchmark]'
-python benchmarks/run.py
+uv run --locked --extra benchmark python benchmarks/run.py
 ```
 
-Raw per-query evidence is in [`benchmarks/results.json`](benchmarks/results.json). Results are local-machine evidence, not a universal performance claim. The corpus is operation-name-heavy with a smaller set of broader business hints; it measures deterministic contract lookup compatibility, not natural-language relevance. These fixed labels are a development regression corpus, not a held-out natural-language benchmark. See `docs/QUALITY_EXPERIMENT.md` for upgrade and ablation results.
+The first `tiktoken` encoding use downloads its encoding data, so the initial
+run needs network access. Ariadne's benchmark path also uses the system `git`
+command for clone and freshness checks; the `rg` and `grep` baselines use those
+system commands directly. Ensure all three are available on `PATH`.
+
+Raw per-query evidence is in [`benchmarks/results.json`](benchmarks/results.json).
+Results are local-machine evidence, not a universal performance claim. The
+corpus is operation-name-heavy with a smaller set of broader business hints; it
+measures deterministic contract lookup compatibility, not natural-language
+relevance. These fixed labels are a development regression corpus, not a
+held-out natural-language benchmark. See `docs/QUALITY_EXPERIMENT.md` for
+upgrade and ablation results.

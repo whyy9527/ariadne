@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.db
+*.db-*
+*.egg-info
+dist
+build
+.pytest_cache
+.DS_Store
+/ariadne.config.json
+benchmarks/.work
+examples/.work
+adoption-snapshots
+GROWTH_NOTES.md

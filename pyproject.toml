@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ariadne-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Fast local MCP server for deterministic cross-service API-chain discovery across REST, GraphQL, Kafka, TypeScript, and FastAPI."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -41,12 +41,20 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.0,<2",
+    "PyYAML>=6,<7",
 ]
 
 [project.optional-dependencies]
 benchmark = [
     "tiktoken>=0.7",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "anyio>=4,<5"]
+release = ["build>=1,<2", "twine>=6,<7", "setuptools>=68", "wheel>=0.45"]
+
+[tool.uv]
+required-version = "==0.9.26"
 
 [project.urls]
 Homepage = "https://github.com/whyy9527/ariadne"

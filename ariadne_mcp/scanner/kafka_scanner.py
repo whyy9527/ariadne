@@ -7,13 +7,9 @@ Scans Kafka topics from:
 import re
 from pathlib import Path
 
-from ariadne_mcp.scanner import BaseScanner, source_files
+import yaml
 
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+from ariadne_mcp.scanner import BaseScanner, source_files
 
 
 class KafkaScanner(BaseScanner):
@@ -31,11 +27,8 @@ def scan_kafka(repo_path: str, service: str) -> list[dict]:
     for yaml_file in source_files(repo, "application*.yaml"):
         try:
             text = yaml_file.read_text(encoding="utf-8")
-            if HAS_YAML:
-                data = yaml.safe_load(text)
-                kafka_topics = _extract_yaml_topics(data)
-            else:
-                kafka_topics = _regex_yaml_topics(text)
+            data = yaml.safe_load(text)
+            kafka_topics = _extract_yaml_topics(data)
         except Exception:
             continue
         for prop_name, topic_name in kafka_topics.items():
@@ -103,11 +96,8 @@ def _build_prop_map(repo: Path) -> dict:
     for yaml_file in source_files(repo, "application*.yaml"):
         try:
             text = yaml_file.read_text(encoding="utf-8")
-            if HAS_YAML:
-                data = yaml.safe_load(text)
-                prop_map.update(_extract_yaml_topics(data))
-            else:
-                prop_map.update(_regex_yaml_topics(text))
+            data = yaml.safe_load(text)
+            prop_map.update(_extract_yaml_topics(data))
         except Exception:
             continue
     return prop_map
@@ -147,21 +137,6 @@ def _extract_yaml_topics(data, prefix="") -> dict:
             results.update(_extract_yaml_topics(v, full_key))
         elif isinstance(v, str) and "kafka.topic" in full_key:
             results[full_key.split(".")[-1]] = v
-    return results
-
-
-def _regex_yaml_topics(text: str) -> dict:
-    results = {}
-    in_topic_section = False
-    for line in text.splitlines():
-        if re.match(r'\s+topic:', line):
-            in_topic_section = True
-        elif re.match(r'\S', line) and in_topic_section:
-            in_topic_section = False
-        if in_topic_section:
-            m = re.match(r'\s+(\w+):\s+(\S+)', line)
-            if m:
-                results[m.group(1)] = m.group(2)
     return results
 
 

@@ -59,6 +59,15 @@ GraphQL/TypeScript, Kafka, and FastAPI):
 This corpus is operation-name-heavy and measures deterministic contract lookup
 compatibility. It is not yet a natural-language relevance benchmark.
 
+Reproduce the measurements with [`uv`](https://docs.astral.sh/uv/):
+
+```bash
+uv run --locked --extra benchmark python benchmarks/run.py
+```
+
+The first run that uses `tiktoken` downloads its encoding data and needs network
+access. The benchmark also calls the system `git`, `rg`, and `grep` commands.
+
 Supports: GraphQL · Spring HTTP/Kafka/RestClient · Python FastAPI · TypeScript
 Apollo/fetch/axios · Cube.js.
 
@@ -175,11 +184,15 @@ complete MCP query/expand/rate/rescan lifecycle, including a real stdio client.
 It uses synthetic contracts; private workspace sources and feedback stay local.
 
 ```bash
-python -m pip install -e '.[benchmark]' pytest
-python -m pytest tests/ -q
-python benchmarks/ablation.py --output benchmarks/.work/ablation.json
+uv sync --locked --extra benchmark --group dev
+uv run --locked --extra benchmark --group dev python -m pytest tests/ -q
+uv run --locked --extra benchmark python benchmarks/ablation.py \
+  --output benchmarks/.work/ablation.json
 ```
 
 See [quality experiment results](docs/QUALITY_EXPERIMENT.md) for the fixed-input
 baseline, component ablations, output costs and remaining limitations. The
-current server uses MCP Python SDK v1 (`mcp<2`).
+server supports Python 3.10, 3.11, and 3.12. Runtime requirements are MCP Python
+SDK v1 (`mcp>=1,<2`) and PyYAML (`PyYAML>=6,<7`); `tiktoken` is an optional
+benchmark dependency. `uv.lock` pins the maintainer and CI environment and does
+not constrain dependencies resolved by package users.

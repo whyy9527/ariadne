@@ -17,6 +17,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e .
-      - run: python -m pip install pytest
-      - run: python -m pytest tests/ -v
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.26"
+      - run: uv sync --locked --extra benchmark --group release
+      - run: uv run --locked --extra benchmark --group release python -m pytest tests/ -v
+      - run: uv run --locked --extra benchmark --group release python -m build --no-isolation
+      - run: uv run --locked --extra benchmark --group release python -m twine check dist/*
+      - name: Smoke-test installed distributions outside the checkout
+        shell: bash
+        run: |
+          for artifact in "$GITHUB_WORKSPACE"/dist/*; do
+            smoke_env=$(mktemp -d)
+            uv venv "$smoke_env/venv" --python "$(command -v python)"
+            uv pip install --python "$smoke_env/venv/bin/python" "$artifact"
+            (cd "$smoke_env" && "$smoke_env/venv/bin/ariadne-mcp" --help)
+            (cd "$smoke_env" && "$smoke_env/venv/bin/python" -c 'from importlib.resources import files; from ariadne_mcp.server import app; from ariadne_mcp.scanner.kafka_scanner import KafkaScanner; assert files("ariadne_mcp").joinpath("ariadne.config.example.json").is_file(); assert files("ariadne_mcp").joinpath("claude-md-snippet.md").is_file()')
+          done
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ariadne-ci .
+      - run: docker run --rm --entrypoint ariadne-mcp ariadne-ci --help
+      - name: Scan and query using the container environment
+        run: >-
+          docker run --rm --entrypoint python ariadne-ci -c
+          'from ariadne_mcp.server import app;
+          from ariadne_mcp.cli import run_scan;
+          from ariadne_mcp.store.db import DB;
+          from ariadne_mcp.query.query import query;
+          run_scan("tests/fixtures/business/ariadne.config.json", "/tmp/ariadne.db");
+          db = DB("/tmp/ariadne.db");
+          assert query(db, "createOrder");
+          db.close()'
