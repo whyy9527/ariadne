@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ariadne-mcp"
-version = "0.2.1"
+version = "0.2.2"
 description = "Fast local MCP server for deterministic cross-service API-chain discovery across REST, GraphQL, Kafka, TypeScript, and FastAPI."
 readme = "README.md"
 license = { file = "LICENSE" }

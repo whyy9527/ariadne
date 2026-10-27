@@ -30,7 +30,7 @@ git status --short --branch
 git switch main
 git pull --ff-only
 uv --version
-VER=0.2.1
+VER=0.2.2
 ```
 
 1. Set the release version in `pyproject.toml`, `ariadne_mcp/__init__.py`,
