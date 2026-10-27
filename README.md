@@ -106,6 +106,30 @@ ariadne-mcp install ariadne.config.json ~/your-workspace
 Restart Claude Code. `install` is idempotent — re-run after pulling new
 code, or let the assistant call `rescan` on a `stale_warning`.
 
+### Run an MCP server from a source checkout
+
+Prepare the environment with the project's pinned `uv` version, then configure
+the MCP client to launch that environment's Python directly:
+
+```bash
+cd /path/to/ariadne
+uv sync --locked --no-dev --inexact
+.venv/bin/python -m ariadne_mcp.server \
+  --db /path/to/workspace/.ariadne/ariadne.db \
+  --fb /path/to/workspace/.ariadne/feedback.db
+```
+
+Use an absolute interpreter path in the MCP client configuration. Run the sync
+step after dependency changes; it is separate from the long-running server.
+`--inexact` preserves other installed dependency groups in a development checkout.
+If `UV_PROJECT_ENVIRONMENT` selects another environment, configure that
+environment's Python instead of `.venv/bin/python`.
+
+With the project's pinned uv version, wrapping a long-running server in `uv run`
+keeps uv's shared package-cache lock held for the server's lifetime, which
+prevents normal `uv cache prune`. A direct Python launch avoids that lock.
+Separate stdio client connections can run separate server processes.
+
 After your first real query, you can optionally send
 [closed-ended usage feedback][feedback-form]. No source, query, or usage data is
 transmitted by Ariadne itself.
