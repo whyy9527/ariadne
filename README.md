@@ -96,6 +96,10 @@ the form opens only when you choose to submit it.
 
 ## Install on your own workspace
 
+For Codex sessions in this checkout, use the [Ariadne cross-service discovery
+skill](.agents/skills/ariadne-cross-service-discovery/SKILL.md) to query and
+verify a chain with the installed MCP server.
+
 ```bash
 pip install ariadne-mcp
 cp "$(python -c 'import ariadne_mcp, os; print(os.path.join(os.path.dirname(ariadne_mcp.__file__), "ariadne.config.example.json"))')" ariadne.config.json
